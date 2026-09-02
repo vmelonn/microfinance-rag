@@ -1,7 +1,75 @@
-# Baseline: keyword only
+# Baseline and mode comparison
 
-Recorded before any vector search exists. Every later retrieval change is
-measured against this. A change that cannot beat it is not worth its cost.
+Keyword was recorded first, before any vector search existed, so later changes
+had something to beat. Vector and hybrid were then measured on the identical
+question set.
+
+## Result
+
+| Measure | keyword | vector | **hybrid** |
+|---|---|---|---|
+| Documented, retrieval@5 | 79.2% | 79.2% | **95.8%** |
+| Held out, all analogues | 12.5% | 0.0% | 0.0% |
+| Held out, at least one | 87.5% | 87.5% | 87.5% |
+| Supersession | 100% | 100% | 100% |
+| Refusal | 100% | 100% | 100% |
+
+Embedding model `BAAI/bge-small-en-v1.5`, 384 dims, on a laptop RTX 4060.
+258 chunks embedded in 1.0s at 246 chunks/sec; VRAM returned to idle after.
+
+## The finding: the two modes fail on different questions
+
+Vector search scores **exactly the same as keyword**, 19 of 24. Taken alone that
+reads as "embeddings added nothing", which is what PLAN.md limit 1 predicted for
+a corpus this small.
+
+It is the wrong reading. Look at *which* questions each one misses:
+
+| Missed by keyword | Missed by vector |
+|---|---|
+| ORPHAN_SWITCH (both phrasings) | UNBALANCED_ENTRY (both phrasings) |
+| AMOUNT_MISMATCH | STALE_REVERSAL |
+| DUPLICATE_POSTING | APPROVED_BUT_DECLINED |
+| NEGATIVE_BALANCE | NEGATIVE_BALANCE |
+
+**The sets are almost disjoint.** Only NEGATIVE_BALANCE defeats both. Keyword
+fails on paraphrase, where "the customer was charged twice" shares no vocabulary
+with "posted more than once". Vector fails on the opposite: precise technical
+phrasing where the exact words carry the meaning and semantic similarity blurs
+"debit and credit legs" into every other ledger passage.
+
+Fusing them recovers almost everything: **95.8%, 23 of 24**. That is a +16.6
+point gain over either mode alone, from two components that individually look
+identical in score.
+
+The lesson generalises past this corpus. Comparing retrieval modes on a single
+aggregate number hides whether they are redundant or complementary, and that
+distinction is the entire case for hybrid search. Two modes at 79% each can be
+worth 96% together or worth nothing together, and the score alone cannot tell
+you which.
+
+## What still fails
+
+`NEGATIVE_BALANCE` on the phrasing "solvency invariant was violated on an
+account" misses in every mode. The SOP says "wallet balance went negative" and
+never uses the word "solvency", so there is neither a lexical overlap for BM25
+nor enough semantic proximity for a small embedding model. Either the SOP should
+name the invariant, or this is the kind of gap a reranker is meant to close.
+That is the next thing to measure, not to assume.
+
+## Held-out defects got worse, and that is informative
+
+"All analogues in the top 5" fell from 12.5% to 0% under vector and hybrid, while
+"at least one analogue" held at 87.5% everywhere. Vector search pulls in
+semantically adjacent material that crowds out the second and third analogue.
+For a derived answer that means thinner grounding: one procedure to reason from
+instead of three. Whether that materially weakens the derivation is an answer
+quality question, not a retrieval one, and it cannot be settled from these
+numbers.
+
+---
+
+## Original keyword baseline
 
 Index: 124 documents, 258 chunks. 12 SOPs, 10 circulars (5 supersession pairs),
 98 simulator narratives, 4 platform documents.
@@ -73,7 +141,11 @@ python eval/generate_sops.py --out corpus/
 python -m app.ingest.pipeline --index index.db \
     --docs corpus ../microfinance-microservices/docs \
     --sim sim.db --repo-root ..
-python eval/run_eval.py --index index.db -k 5
+python eval/run_eval.py --index index.db -k 5 --mode keyword
+
+# then, with a GPU or CPU
+python -m app.ingest.embedder --index index.db --device cuda --batch 16
+python eval/run_eval.py --index index.db -k 5 --mode hybrid     --model BAAI/bge-small-en-v1.5
 ```
 
 Narrative counts vary between runs because the simulator is entropy-seeded. The
