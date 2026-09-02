@@ -37,6 +37,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.retrieve.hybrid import Hybrid, load_encoder  # noqa: E402
+from app.answer.router import PROCEDURE_TYPES  # noqa: E402
 from app.retrieve.rerank import Reranker  # noqa: E402
 from app.retrieve.store import today  # noqa: E402
 from sim.catalogue import DOCUMENTED, HELD_OUT  # noqa: E402
@@ -101,7 +102,7 @@ def run(index: str, k: int, floor: float, verbose: bool,
         want = sop_uri(a.code)
         for q in a.questions:
             total += 1
-            docs = hit_docs(search(q, as_of=as_of, exclude_sources=["sim"]))
+            docs = hit_docs(search(q, as_of=as_of, doc_types=PROCEDURE_TYPES))
             if want in docs:
                 hits_at_k += 1
             else:
@@ -121,7 +122,7 @@ def run(index: str, k: int, floor: float, verbose: bool,
         wanted = {sop_uri(c) for c in a.analogous_to}
         for q in a.questions:
             h_total += 1
-            docs = set(hit_docs(search(q, as_of=as_of, exclude_sources=["sim"])))
+            docs = set(hit_docs(search(q, as_of=as_of, doc_types=PROCEDURE_TYPES)))
             found = wanted & docs
             if found == wanted:
                 h_hits += 1
@@ -161,7 +162,7 @@ def run(index: str, k: int, floor: float, verbose: bool,
     # ------------------------------------------------------------- refusal
     r_ok = 0
     for q in REFUSAL_QUESTIONS:
-        hits = search(q, as_of=as_of, exclude_sources=["sim"])
+        hits = search(q, as_of=as_of, doc_types=PROCEDURE_TYPES)
         # Coverage, not BM25. Measured on this corpus, score does not separate
         # the two populations (real 6.38-9.07, junk 4.67-6.90) but coverage over
         # content words does, cleanly: junk 0.00, real 0.25-0.75.

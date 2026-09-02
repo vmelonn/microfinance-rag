@@ -50,7 +50,8 @@ class Hybrid:
     # ------------------------------------------------------------------ vector
 
     def _load_matrix(self, current_only: bool,
-                     exclude_sources: tuple[str, ...]) -> tuple:
+                     exclude_sources: tuple[str, ...],
+                     doc_types: tuple[str, ...] = ()) -> tuple:
         """
         Read every eligible vector once into one numpy matrix, and keep it.
 
@@ -64,7 +65,7 @@ class Hybrid:
         are eligible and a cache that ignored it would silently answer the
         wrong question.
         """
-        key = (current_only, exclude_sources)
+        key = (current_only, exclude_sources, doc_types)
         if key in self._matrix_cache:
             return self._matrix_cache[key]
 
@@ -77,6 +78,9 @@ class Hybrid:
         if exclude_sources:
             where.append("d.source NOT IN (%s)" % ",".join("?" * len(exclude_sources)))
             params += list(exclude_sources)
+        if doc_types:
+            where.append("d.doc_type IN (%s)" % ",".join("?" * len(doc_types)))
+            params += list(doc_types)
 
         sql = """SELECT k.id, k.document_id, d.doc_type, d.title, d.source_uri,
                         k.section_path, k.text, k.embedding
@@ -103,13 +107,15 @@ class Hybrid:
 
     def vector_search(self, query: str, *, k: int = 10,
                       current_only: bool = True,
-                      exclude_sources: list[str] | None = None) -> list[Hit]:
+                      exclude_sources: list[str] | None = None,
+                      doc_types: list[str] | None = None) -> list[Hit]:
         if self.encoder is None:
             return []
 
         import numpy as np
 
-        mat, rows = self._load_matrix(current_only, tuple(exclude_sources or ()))
+        mat, rows = self._load_matrix(current_only, tuple(exclude_sources or ()),
+                                     tuple(doc_types or ()))
         if not rows:
             return []
 
@@ -141,20 +147,25 @@ class Hybrid:
     def search(self, query: str, *, k: int = 5, pool: int = 30,
                as_of: str | None = None, current_only: bool = True,
                exclude_sources: list[str] | None = None,
+               doc_types: list[str] | None = None,
                mode: str = "hybrid") -> list[Hit]:
         if mode == "keyword":
             return self.store.search(query, k=k, as_of=as_of,
                                      current_only=current_only,
-                                     exclude_sources=exclude_sources)
+                                     exclude_sources=exclude_sources,
+                                     doc_types=doc_types)
         if mode == "vector":
             return self.vector_search(query, k=k, current_only=current_only,
-                                      exclude_sources=exclude_sources)
+                                      exclude_sources=exclude_sources,
+                                      doc_types=doc_types)
 
         kw = self.store.search(query, k=pool, as_of=as_of,
                                current_only=current_only,
-                               exclude_sources=exclude_sources)
+                               exclude_sources=exclude_sources,
+                               doc_types=doc_types)
         vec = self.vector_search(query, k=pool, current_only=current_only,
-                                 exclude_sources=exclude_sources)
+                                 exclude_sources=exclude_sources,
+                                 doc_types=doc_types)
 
         merged: dict[str, Scored] = {}
         for rank, h in enumerate(kw, start=1):

@@ -4,7 +4,63 @@ Keyword was recorded first, before any vector search existed, so later changes
 had something to beat. Vector and hybrid were then measured on the identical
 question set.
 
-## Result at 10,160 chunks
+## Result with document-kind scoping
+
+The measurements below replaced a flawed harness. The earlier runs excluded
+`source = 'sim'` on the documented questions, which hid 10,000 narratives a real
+query would face: the harness was scoring a 160-chunk problem while the system
+faced 10,160. Scoping by **document kind** instead (`doc_type IN ('sop',
+'circular')`) is the honest equivalent, because "what do I do about this"
+genuinely wants a procedure rather than a case history, and the router applies
+the same scoping in production.
+
+| Measure | keyword | vector | **hybrid** |
+|---|---|---|---|
+| Documented, retrieval@5 | 95.8% | 95.8% | **100%** (24/24) |
+| Held out, all analogues | 12.5% | 37.5% | 25.0% |
+| Held out, at least one | 100% | 100% | **100%** (8/8) |
+| Supersession | 100% | 100% | 100% |
+| Refusal | 100% | 100% | 100% |
+
+### The competitor was never the narratives
+
+Scoping by kind raised documented retrieval from 91.7% to 100%, and held-out
+"at least one analogue" from 75% to 100%. The 10,000 narratives were not the
+problem.
+
+`architecture.html` was. It is 131 KB producing 103 long chunks of general
+payments vocabulary, and it matched almost any operational phrasing well enough
+to outrank the short precise SOP that actually answered the question. A single
+large document was crowding out the whole procedure corpus.
+
+The general point: pooling documents of different **kinds** into one ranking does
+not surface the best answer, it surfaces the biggest document. Kind is a
+retrieval filter, not just metadata.
+
+### The exact/derived tier cannot come from a score
+
+The plan was to call an answer "exact" above some retrieval threshold. Measuring
+the three populations showed no such threshold exists:
+
+| Top-ranked procedure is... | coverage range |
+|---|---|
+| the correct one | 0.25 to 1.00 |
+| the wrong one | 0.25 to 0.60 |
+| a held-out defect with no correct answer | 0.25 to 0.67 |
+
+They overlap almost completely. Coverage separates a real question from junk,
+which is what the refusal floor uses it for, and it does not separate a right
+answer from a wrong one.
+
+The fix is better than a threshold. **A break does not arrive as a bare
+question**: the reconciliation engine found it with a deterministic predicate,
+so the defect class is already known, and the procedure for a known class is a
+lookup by name rather than a search. Retrieval is for the case where the class
+is novel, and everything reached by search is therefore `derived` by
+construction. Tier accuracy is now 5/5 on the tier cases, and it does not depend
+on a number that the data says cannot exist.
+
+## Earlier result at 10,160 chunks, before scoping
 
 The corpus was scaled from 258 chunks to 10,160 by running the simulator to
 93,687 unique narratives and ingesting 10,000 of them.
