@@ -36,7 +36,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.retrieve.store import Store, today  # noqa: E402
+from app.retrieve.hybrid import Hybrid, load_encoder  # noqa: E402
+from app.retrieve.store import today  # noqa: E402
 from sim.catalogue import DOCUMENTED, HELD_OUT  # noqa: E402
 
 REFUSAL_QUESTIONS = [
@@ -64,12 +65,22 @@ def hit_docs(hits) -> list[str]:
     return out
 
 
-def run(index: str, k: int, floor: float, verbose: bool) -> int:
-    store = Store(index)
+def run(index: str, k: int, floor: float, verbose: bool,
+        mode: str = "keyword", model: str | None = None,
+        device: str = "auto") -> int:
+    encoder = None
+    if mode in ("vector", "hybrid"):
+        if not model:
+            print("--mode %s needs --model" % mode); return 2
+        encoder = load_encoder(model, device)
+
+    store = Hybrid(index, encoder=encoder)
     as_of = today()
 
     print("=" * 74)
-    print("RETRIEVAL EVAL   index=%s   k=%d   floor=%.2f" % (index, k, floor))
+    print("RETRIEVAL EVAL   mode=%s   k=%d   floor=%.2f" % (mode, k, floor))
+    if model:
+        print("                 model=%s" % model)
     print("=" * 74)
 
     # ---------------------------------------------------------- documented
@@ -79,7 +90,7 @@ def run(index: str, k: int, floor: float, verbose: bool) -> int:
         want = sop_uri(a.code)
         for q in a.questions:
             total += 1
-            docs = hit_docs(store.search(q, k=k, as_of=as_of,
+            docs = hit_docs(store.search(q, k=k, as_of=as_of, mode=mode,
                                          exclude_sources=["sim"]))
             if want in docs:
                 hits_at_k += 1
@@ -100,7 +111,7 @@ def run(index: str, k: int, floor: float, verbose: bool) -> int:
         wanted = {sop_uri(c) for c in a.analogous_to}
         for q in a.questions:
             h_total += 1
-            docs = set(hit_docs(store.search(q, k=k, as_of=as_of,
+            docs = set(hit_docs(store.search(q, k=k, as_of=as_of, mode=mode,
                                              exclude_sources=["sim"])))
             found = wanted & docs
             if found == wanted:
@@ -124,7 +135,7 @@ def run(index: str, k: int, floor: float, verbose: bool) -> int:
         old_2023 = "circular/CIR-%s-2023.md" % slug
         q = "what is the current fee cap for %s" % product
         s_total += 1
-        docs = hit_docs(store.search(q, k=k, as_of=as_of))
+        docs = hit_docs(store.search(q, k=k, as_of=as_of, mode=mode))
         if old_2023 in docs:
             leaked.append((product, "superseded circular was returned"))
         elif current in docs:
@@ -141,7 +152,7 @@ def run(index: str, k: int, floor: float, verbose: bool) -> int:
     # ------------------------------------------------------------- refusal
     r_ok = 0
     for q in REFUSAL_QUESTIONS:
-        hits = store.search(q, k=k, as_of=as_of, exclude_sources=["sim"])
+        hits = store.search(q, k=k, as_of=as_of, mode=mode, exclude_sources=["sim"])
         # Coverage, not BM25. Measured on this corpus, score does not separate
         # the two populations (real 6.38-9.07, junk 4.67-6.90) but coverage over
         # content words does, cleanly: junk 0.00, real 0.25-0.75.
@@ -155,8 +166,12 @@ def run(index: str, k: int, floor: float, verbose: bool) -> int:
           % (r_ok / len(REFUSAL_QUESTIONS) * 100, r_ok, len(REFUSAL_QUESTIONS)))
 
     print("\n" + "-" * 74)
-    print("BASELINE, keyword only. Record these before adding vectors;")
-    print("a retrieval change that cannot beat this is not worth its cost.")
+    if mode == "keyword":
+        print("BASELINE, keyword only. Record these before adding vectors;")
+        print("a retrieval change that cannot beat this is not worth its cost.")
+    else:
+        print("Compare against the keyword baseline in BASELINE.md.")
+        print("A mode that does not beat it is not worth its dependencies.")
     print("-" * 74)
 
     store.close()
@@ -170,8 +185,13 @@ def main() -> int:
     p.add_argument("--floor", type=float, default=0.36,
                    help="content-word coverage below which we refuse")
     p.add_argument("-v", "--verbose", action="store_true")
+    p.add_argument("--mode", default="keyword",
+                   choices=["keyword", "vector", "hybrid"])
+    p.add_argument("--model", default=None)
+    p.add_argument("--device", default="auto",
+                   choices=["auto", "cpu", "cuda"])
     a = p.parse_args()
-    return run(a.index, a.k, a.floor, a.verbose)
+    return run(a.index, a.k, a.floor, a.verbose, a.mode, a.model, a.device)
 
 
 if __name__ == "__main__":
