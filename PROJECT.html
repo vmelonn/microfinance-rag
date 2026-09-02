@@ -1,0 +1,407 @@
+<title>microfinance-rag</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ground:#F4F6F8; --surface:#FFFFFF; --line:#DBE1E8; --line-soft:#EAEEF2;
+    --ink:#141922; --ink-2:#4A5462; --ink-3:#78838F;
+    --accent:#0B6FA4; --accent-soft:#E2EEF5;
+    --warn:#B8792B; --warn-soft:#F7EEDF;
+    --lane:#F7F9FB;
+    --shadow:0 1px 2px rgba(20,25,34,.06), 0 8px 24px -12px rgba(20,25,34,.18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#10141A; --surface:#171D25; --line:#2A333F; --line-soft:#212932;
+      --ink:#E8ECF1; --ink-2:#A3AEBC; --ink-3:#78838F;
+      --accent:#3892C4; --accent-soft:#1B2C3A;
+      --warn:#C79A5E; --warn-soft:#2A2117;
+      --lane:#141A21;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#10141A; --surface:#171D25; --line:#2A333F; --line-soft:#212932;
+    --ink:#E8ECF1; --ink-2:#A3AEBC; --ink-3:#78838F;
+    --accent:#3892C4; --accent-soft:#1B2C3A;
+    --warn:#C79A5E; --warn-soft:#2A2117;
+    --lane:#141A21;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.6);
+  }
+  * { box-sizing:border-box; }
+  body { background:var(--ground); color:var(--ink); line-height:1.62;
+         font-family:"IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+         -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:900px; margin:0 auto; padding:48px 24px 80px;
+          display:flex; flex-direction:column; gap:28px; }
+  .eyebrow { font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:11px;
+             font-weight:500; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-3); }
+  header { display:flex; flex-direction:column; gap:10px; }
+  h1 { margin:0; font-size:clamp(28px,4vw,38px); font-weight:600;
+       letter-spacing:-.02em; font-family:"IBM Plex Mono", monospace; }
+  .lede { margin:0; max-width:66ch; color:var(--ink-2); font-size:16px; }
+  .panel { background:var(--surface); border:1px solid var(--line); border-radius:12px;
+           padding:26px; box-shadow:var(--shadow); display:flex;
+           flex-direction:column; gap:16px; }
+  h2 { margin:0; font-size:17px; font-weight:600; letter-spacing:-.01em; }
+  h3 { margin:10px 0 0; font-size:12px; font-weight:600; color:var(--ink-2);
+       text-transform:uppercase; letter-spacing:.07em; }
+  p { margin:0; max-width:72ch; }
+  .panel p { font-size:14.5px; color:var(--ink-2); }
+  .panel p strong { color:var(--ink); font-weight:600; }
+  figure { margin:0; display:flex; flex-direction:column; gap:10px; }
+  .figbox { overflow-x:auto; }
+  svg { max-width:100%; height:auto; display:block; color:var(--ink-2); }
+  figcaption { font-size:12.5px; color:var(--ink-3); max-width:76ch; }
+  .bx { fill:var(--surface); stroke:currentColor; stroke-opacity:.4; }
+  .bx-a { fill:var(--accent-soft); stroke:var(--accent); stroke-opacity:.85; }
+  .grp { fill:var(--lane); stroke:currentColor; stroke-opacity:.28; stroke-dasharray:5 4; }
+  .t  { font-family:"IBM Plex Sans", sans-serif; font-size:12.5px; font-weight:600; fill:var(--ink); }
+  .st { font-family:"IBM Plex Sans", sans-serif; font-size:10px; fill:var(--ink-3); }
+  .gt { font-family:"IBM Plex Mono", monospace; font-size:9.5px; font-weight:600;
+        fill:var(--ink-3); letter-spacing:.09em; }
+  .ln { stroke:currentColor; stroke-opacity:.5; fill:none; }
+  .ln-a { stroke:var(--accent); stroke-opacity:.85; fill:none; }
+  .lbl { font-family:"IBM Plex Mono", monospace; font-size:9.5px; fill:var(--ink-3); }
+  .lbl-a { font-family:"IBM Plex Mono", monospace; font-size:9.5px; fill:var(--accent); font-weight:600; }
+  pre { margin:0; background:var(--ground); border:1px solid var(--line); border-radius:8px;
+        padding:16px 18px; overflow-x:auto; font-family:"IBM Plex Mono", monospace;
+        font-size:12px; line-height:1.7; color:var(--ink-2); }
+  pre b { color:var(--ink); font-weight:600; }
+  pre i { font-style:normal; color:var(--ink-3); }
+  table { width:100%; border-collapse:collapse; font-size:13.5px; }
+  th,td { padding:9px 12px; text-align:left; border-bottom:1px solid var(--line-soft);
+          vertical-align:top; }
+  th { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.07em;
+       color:var(--ink-3); border-bottom:1px solid var(--line); }
+  tbody tr:last-child td { border-bottom:0; }
+  td code, p code { font-family:"IBM Plex Mono", monospace; font-size:12.5px;
+                    background:var(--ground); border:1px solid var(--line);
+                    border-radius:4px; padding:1px 5px; color:var(--ink); }
+  .lim { display:flex; flex-direction:column; gap:16px; }
+  .lim-item { display:grid; grid-template-columns:26px 1fr; gap:14px; }
+  .lim-item .k { font-family:"IBM Plex Mono", monospace; font-size:11px; font-weight:600;
+                 color:var(--warn); background:var(--warn-soft); border-radius:6px;
+                 height:23px; display:flex; align-items:center; justify-content:center;
+                 margin-top:2px; }
+  .lim-item h4 { margin:0 0 4px; font-size:14.5px; font-weight:600; color:var(--ink); }
+  .lim-item p { font-size:14px; color:var(--ink-2); }
+  .verdict { background:var(--accent-soft); border:1px solid var(--accent);
+             border-radius:8px; padding:14px 16px; font-size:14px; color:var(--ink-2); }
+  .verdict b { color:var(--ink); }
+  ol.build { margin:0; padding-left:0; list-style:none; counter-reset:b;
+             display:flex; flex-direction:column; gap:11px; }
+  ol.build li { counter-increment:b; display:grid; grid-template-columns:26px 1fr;
+                gap:13px; font-size:14.5px; color:var(--ink-2); }
+  ol.build li::before { content:counter(b); font-family:"IBM Plex Mono", monospace;
+    font-size:11px; font-weight:600; color:var(--accent); background:var(--accent-soft);
+    border-radius:6px; height:23px; display:flex; align-items:center;
+    justify-content:center; margin-top:2px; }
+  ol.build b { color:var(--ink); font-weight:600; }
+  footer { font-size:12.5px; color:var(--ink-3); max-width:76ch; }
+  @media (max-width:640px){ .wrap{padding:32px 16px 56px;} .panel{padding:18px;} }
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Internship project &#183; design brief</div>
+  <h1>microfinance-rag</h1>
+  <p class="lede">
+    A retrieval layer over the existing payment platform. Separate repository, same
+    OpenShift namespace, four read-only seams. It puts a question box on the operator
+    console and answers with citations drawn from the platform's own documentation and
+    trace history.
+  </p>
+</header>
+
+<section class="panel">
+  <h2>Why this exists</h2>
+  <p>
+    The RPA brief argued that the strongest RAG use case in microfinance operations is a
+    copilot that helps an operator resolve an exception, because the corpus accumulates as
+    a byproduct of the work and every answer is checkable by the person receiving it.
+  </p>
+  <p>
+    That version is blocked on things outside this project: RSA credentials, vendor
+    access, PII approval, and a history of resolved cases that does not exist yet.
+    <strong>This is the same architecture pointed at a system we fully own.</strong> Nothing
+    here is blocked, the data is synthetic, and the result runs end to end.
+  </p>
+</section>
+
+<section class="panel">
+  <h2>What it actually answers</h2>
+  <p>
+    The same three-way routing from the ops design, made concrete against this platform.
+    The split matters because mixing counting with reading is how a system produces a
+    confident wrong number.
+  </p>
+  <table>
+    <thead><tr><th>A question like this</th><th>Goes here</th></tr></thead>
+    <tbody>
+      <tr><td>How many authorizations failed with code 51 today?</td>
+          <td>Text to SQL over ClickHouse. <strong>Counted, never retrieved.</strong></td></tr>
+      <tr><td>What is the balance on 03001234567?</td>
+          <td>Direct lookup against <code>ledger-service</code>. Exact value; the model only words it.</td></tr>
+      <tr><td>What happens if the ledger posting fails after the switch approved?</td>
+          <td>Retrieval over <code>architecture.html</code> and the saga docstrings.</td></tr>
+      <tr><td>Why did correlation ID <code>abc-123</code> fail?</td>
+          <td><strong>Both.</strong> Fetch the trace, then retrieve what its failure mode means.</td></tr>
+    </tbody>
+  </table>
+  <p>
+    That last row is the reason this is worth building. It is the shape every real
+    operational question takes: some facts, some reading, and a person who needs both at
+    once.
+  </p>
+  <h3>The corpus already exists in the repo</h3>
+  <table>
+    <tbody>
+      <tr><td><code>docs/architecture.html</code></td><td>131 KB, including ten scenarios recorded from the services' own logs</td></tr>
+      <tr><td><code>docs/practice-schema.html</code></td><td>31 KB, ledger schema and its invariants</td></tr>
+      <tr><td><code>docs/sql-practice.md</code></td><td>17 KB, query patterns over the warehouse</td></tr>
+      <tr><td><code>README.md</code></td><td>13 KB, layer map and the service and port matrix</td></tr>
+      <tr><td>Service docstrings</td><td><code>idempotency.py</code> and <code>transaction-service/main.py</code> carry real prose about races and compensations</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>How it connects</h2>
+  <figure>
+    <div class="figbox">
+      <svg viewBox="0 0 760 384" role="img" aria-label="The existing platform on the left contains api-gateway on port 8080, ledger-service on 8084, the ledger Postgres and ClickHouse. The new rag-service sits on the right with its own Postgres carrying pgvector. The gateway proxies slash-ask to the rag service, the rag service calls the gateway back for traces by correlation ID, and reads the ledger Postgres and ClickHouse through read-only views. The rag service has no public route of its own.">
+        <defs>
+          <marker id="p1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor" fill-opacity=".55"/>
+          </marker>
+          <marker id="p2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/>
+          </marker>
+        </defs>
+
+        <rect class="bx" x="58" y="14" width="194" height="38" rx="7"/>
+        <text class="t"  x="155" y="32" text-anchor="middle">Operator console</text>
+        <text class="st" x="155" y="45" text-anchor="middle">browser, at the Route root</text>
+        <line class="ln" x1="155" y1="52" x2="155" y2="104" marker-end="url(#p1)"/>
+        <text class="lbl" x="163" y="82">JWT</text>
+
+        <rect class="grp" x="42" y="70" width="226" height="300" rx="10"/>
+        <text class="gt" x="155" y="88" text-anchor="middle">EXISTING PLATFORM</text>
+
+        <rect class="bx" x="58" y="106" width="194" height="48" rx="7"/>
+        <text class="t"  x="155" y="126" text-anchor="middle">api-gateway</text>
+        <text class="st" x="155" y="141" text-anchor="middle">8080 &#183; the only public Route</text>
+
+        <rect class="bx" x="58" y="180" width="194" height="48" rx="7"/>
+        <text class="t"  x="155" y="200" text-anchor="middle">ledger Postgres</text>
+        <text class="st" x="155" y="215" text-anchor="middle">via ledger-service, 8084</text>
+
+        <rect class="bx" x="58" y="254" width="194" height="48" rx="7"/>
+        <text class="t"  x="155" y="274" text-anchor="middle">ClickHouse</text>
+        <text class="st" x="155" y="289" text-anchor="middle">the warehouse</text>
+
+        <rect class="grp" x="492" y="70" width="250" height="300" rx="10"/>
+        <text class="gt" x="617" y="88" text-anchor="middle">MICROFINANCE-RAG &#183; NEW</text>
+
+        <rect class="bx-a" x="508" y="106" width="218" height="196" rx="7"/>
+        <text class="t"  x="617" y="134" text-anchor="middle">rag-service</text>
+        <text class="st" x="617" y="152" text-anchor="middle">router</text>
+        <text class="st" x="617" y="168" text-anchor="middle">retrieve &#183; rerank</text>
+        <text class="st" x="617" y="184" text-anchor="middle">answer</text>
+        <text class="st" x="617" y="200" text-anchor="middle">verify citations</text>
+        <text class="st" x="617" y="224" text-anchor="middle">no Route of its own</text>
+
+        <line class="ln" x1="617" y1="302" x2="617" y2="322" marker-end="url(#p1)"/>
+        <text class="lbl" x="625" y="316">chunks</text>
+
+        <rect class="bx" x="508" y="324" width="218" height="42" rx="7"/>
+        <text class="t"  x="617" y="343" text-anchor="middle">its own Postgres</text>
+        <text class="st" x="617" y="357" text-anchor="middle">pgvector/pgvector:pg16</text>
+
+        <line class="ln-a" x1="252" y1="124" x2="504" y2="124" marker-end="url(#p2)"/>
+        <text class="lbl-a" x="378" y="117" text-anchor="middle">/ask &#183; proxied, inherits the JWT check</text>
+
+        <line class="ln" x1="504" y1="146" x2="256" y2="146" marker-end="url(#p1)"/>
+        <text class="lbl" x="378" y="162" text-anchor="middle">trace by correlation ID</text>
+
+        <line class="ln" x1="252" y1="204" x2="504" y2="204" marker-end="url(#p1)"/>
+        <text class="lbl" x="378" y="197" text-anchor="middle">ledger, read-only views</text>
+
+        <line class="ln" x1="252" y1="278" x2="504" y2="278" marker-end="url(#p1)"/>
+        <text class="lbl" x="378" y="271" text-anchor="middle">warehouse, read-only</text>
+      </svg>
+    </div>
+    <figcaption>
+      Four seams, all read-only. The one in accent is the only inbound path: the console
+      calls the gateway, the gateway proxies to the rag service. That is deliberate, because
+      it means the new service needs no public Route and inherits the JWT check that already
+      guards everything else.
+    </figcaption>
+  </figure>
+  <p>
+    Correlation IDs propagate inward from the gateway exactly as they do everywhere else in
+    the platform, so a question is traceable through the same console tooling as a payment.
+  </p>
+  <h3>Why a separate repository rather than services/rag-service</h3>
+  <p>
+    The dependency footprint. This service needs <code>sentence-transformers</code> and
+    <code>torch</code>, a multi-gigabyte image sitting beside the platform's lean FastAPI
+    ones, and it would slow every build in the existing matrix. Keeping it separate keeps
+    that weight off the payment path. The cost is a second pipeline and a second deploy,
+    which is worth paying here.
+  </p>
+</section>
+
+<section class="panel">
+  <h2>Layout</h2>
+<pre><b>microfinance-rag/</b>
+  PLAN.md  README.md  requirements.txt  Makefile
+  docker-compose.yml          <i>local: pgvector + the service</i>
+  <b>app/</b>
+    main.py                   <i>FastAPI, mirroring services/_base conventions</i>
+    config.py                 <i>env only, no literals</i>
+    <b>ingest/</b>
+      loaders.py              <i>html, markdown, python source</i>
+      chunker.py              <i>structure-aware: heading, scenario, docstring</i>
+      metadata.py             <i>doc_type, source_uri, section_path, status</i>
+      embedder.py             <i>runs offline, not in the cluster</i>
+      pipeline.py             <i>idempotent on content hash</i>
+    <b>retrieve/</b>
+      store.py                <i>pgvector and tsvector queries</i>
+      hybrid.py               <i>vector + BM25, reciprocal rank fusion</i>
+      rerank.py               <i>cross-encoder, 30 -&gt; 5</i>
+      filters.py              <i>hard predicates, applied before similarity</i>
+    <b>answer/</b>
+      router.py               <i>structured vs retrieval vs lookup</i>
+      sql_tool.py             <i>read-only, view-scoped, row-limited, statement logged</i>
+      prompt.py
+      llm.py
+      citations.py            <i>every quote verified against its source</i>
+    <b>api/</b>
+      routes.py               <i>/ask, /ingest, /healthz</i>
+  <b>db/migrations/</b>            <i>documents, chunks, HNSW and GIN indexes</i>
+  <b>eval/</b>
+    questions.yaml            <i>the held-out set</i>
+    run_eval.py               <i>retrieval@k and answer quality, scored separately</i>
+  <b>openshift/base/</b>           <i>Deployment, Service, kustomization</i>
+  tests/</pre>
+  <p>
+    Four modules, one job each, in the order a request travels. <code>retrieve/</code> never
+    imports <code>answer/</code>, and <code>answer/</code> never touches the database
+    directly. That separation is what lets the eval measure retrieval quality independently
+    of answer quality, which is the most useful thing the eval does.
+  </p>
+</section>
+
+<section class="panel">
+  <h2>Feasibility</h2>
+  <div class="verdict">
+    <b>High, and for one specific reason: every blocker from the company version is absent.</b>
+    No RSA, no vendor portal, no PII approval, no waiting for a case history to accumulate.
+    The corpus is committed to the repo today, Postgres 16 is already running, and the
+    namespace already exists.
+  </div>
+  <p>
+    The real work is chunking HTML sensibly, getting hybrid retrieval to fuse properly, and
+    writing an honest evaluation set. None of that is research. It is all engineering with
+    known answers, which is exactly what an internship project should be.
+  </p>
+</section>
+
+<section class="panel">
+  <h2>Limits, stated plainly</h2>
+  <p>These are the things that would make this a weak project if left unsaid.</p>
+  <div class="lim">
+
+    <div class="lim-item"><div class="k">1</div><div>
+      <h4>The corpus is small enough that RAG may not beat keyword search</h4>
+      <p>About 196 KB of documentation, which chunks to somewhere in the low hundreds. At
+      that scale a tuned BM25 index performs close to a vector index, because there is not
+      enough semantic variety for embeddings to earn their cost. Frame the deliverable
+      honestly: this demonstrates the architecture and produces a working eval harness. Then
+      make the eval do real work by measuring both, because <strong>"we measured, and BM25 was
+      within noise on a 400 chunk corpus"</strong> is a genuinely good finding and a more
+      credible one than a claimed win.</p>
+    </div></div>
+
+    <div class="lim-item"><div class="k">2</div><div>
+      <h4>The namespace almost certainly cannot host an embedding model</h4>
+      <p>The manifests are frugal for a reason. Twelve workloads, services requesting 50m CPU
+      and 128Mi, ClickHouse alone at 3Gi, and comments in <code>ace-stub.yaml</code> and
+      <code>api-gateway.yaml</code> describing a namespace LimitRange that injects a 1 CPU
+      default plus a ReplicaSet quota of thirty. A <code>sentence-transformers</code>
+      container wanting 1 to 2Gi resident does not fit into what is left.</p>
+      <p><strong>Resolution: split ingest from query.</strong> Ingest runs offline, on a
+      laptop or in CI, where a full-size model is free, and writes vectors into Postgres. At
+      query time the service embeds exactly one short string, which a quantized 300 MB model
+      can do, or which can be skipped by running keyword-only retrieval in the cluster and
+      reserving vector search for local development. Design for this from the start rather
+      than discovering it at deploy time.</p>
+    </div></div>
+
+    <div class="lim-item"><div class="k">3</div><div>
+      <h4>postgres:16-alpine does not ship pgvector</h4>
+      <p><code>openshift/base/datastores.yaml</code> uses the stock Alpine image, which has no
+      <code>vector</code> extension. It needs <code>pgvector/pgvector:pg16</code>. That is a
+      one line change, but it touches the datastore the ledger depends on. Since the ledger's
+      data matters and the index's does not, stand up a second Postgres rather than swapping
+      the image underneath the ledger.</p>
+    </div></div>
+
+    <div class="lim-item"><div class="k">4</div><div>
+      <h4>Synthetic data means no real feedback loop</h4>
+      <p>There are no operators, so nothing generates accept, edit or reject signal. The eval
+      set has to be hand written, which means it measures what you thought to ask rather than
+      what people actually ask. That is a real ceiling on tuning, and it is why the eval
+      questions should be drawn from the ten recorded scenarios rather than invented.</p>
+    </div></div>
+
+    <div class="lim-item"><div class="k">5</div><div>
+      <h4>It cannot demonstrate the thing that matters most</h4>
+      <p>The company version's value is measured in operator minutes saved. Here there are no
+      operators and no baseline, so no such number exists. What this can show is that the
+      pipeline works, that citations verify, and that the router sends numeric questions to
+      SQL instead of guessing them. Those are worth showing. Time saved is not available and
+      should not be claimed.</p>
+    </div></div>
+
+    <div class="lim-item"><div class="k">6</div><div>
+      <h4>It is more interesting than the thing that pays</h4>
+      <p>The MPG fetcher and the reconciliation pilot are what the company actually needs.
+      This is the more enjoyable project and it competes for the same hours. Worth being
+      deliberate about that rather than drifting into it.</p>
+    </div></div>
+
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Build order</h2>
+  <ol class="build">
+    <li><b>Schema and migrations.</b> <code>documents</code> and <code>chunks</code>, HNSW on the embedding, GIN on the tsvector. Second Postgres instance, per limit 3.</li>
+    <li><b>Ingest, offline.</b> Loaders, structure-aware chunker, metadata, embed, write. Verify by counting chunks per source and reading twenty of them by hand.</li>
+    <li><b>The eval set, before any tuning.</b> Thirty to fifty questions drawn from the ten recorded scenarios, each with a known correct source. Written first, so retrieval cannot be fitted to it.</li>
+    <li><b>Retrieval, measured.</b> Keyword only, and record retrieval@5. Then add vector and fusion, and record it again. <b>The comparison is the deliverable.</b></li>
+    <li><b>Rerank.</b> Measure again. Expect the largest single jump here.</li>
+    <li><b>The router and the SQL tool.</b> Read-only, view-scoped, statement shown to the user, so a wrong answer becomes a visible wrong query instead of an invisible wrong number.</li>
+    <li><b>Answer and citation verification.</b> Refuse when retrieval is weak.</li>
+    <li><b>Console tab</b>, proxied through api-gateway.</li>
+    <li><b>Deploy</b>, with query-time embedding sized to whatever the namespace allows.</li>
+  </ol>
+  <p>
+    Steps 3 and 4 are what make this an engineering project rather than a demo. Do not skip
+    to answer generation, which is the easiest part and the least informative.
+  </p>
+</section>
+
+<footer>
+  Design reasoning behind the retrieval choices is in RPA/04-rag-for-microfinance-ops.md;
+  the request walkthrough is in RPA/rag/copilot-flow.html. Service ports and ownership are
+  from the microfinance-microservices README; resource observations are from
+  openshift/base.
+</footer>
+
+</div>
