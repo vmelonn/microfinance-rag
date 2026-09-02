@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS documents (
     status          TEXT NOT NULL DEFAULT 'current',
     effective_from  DATE,
     effective_to    DATE,
-    superseded_by   TEXT REFERENCES documents(id),
+    superseded_by   TEXT,   -- deliberately not an FK, see the sqlite schema
 
     content_hash    TEXT NOT NULL,
     ingested_at     TIMESTAMPTZ NOT NULL DEFAULT now()

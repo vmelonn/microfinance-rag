@@ -18,7 +18,9 @@ CREATE TABLE IF NOT EXISTS documents (
     status          TEXT NOT NULL DEFAULT 'current',   -- current | superseded | draft
     effective_from  TEXT,
     effective_to    TEXT,
-    superseded_by   TEXT REFERENCES documents(id),
+    -- No FK: circulars reference each other and insert order is arbitrary,
+    -- so the 2023 row names a 2025 row that does not exist yet.
+    superseded_by   TEXT,
 
     content_hash    TEXT NOT NULL,
     ingested_at     TEXT NOT NULL

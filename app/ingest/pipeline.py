@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import re
 import os
 import sqlite3
 import sys
@@ -89,6 +90,45 @@ class Writer:
         self.chunks += len(chunks)
 
 
+def classify(path: Path) -> tuple[str, str, str]:
+    """
+    (doc_type, source, uri) from where the file sits.
+
+    Generated documents are addressed relative to corpus/, so a citation reads
+    `sop/SOP-ORPHAN_SWITCH.md` on any machine. Absolute paths would make the
+    evaluation set machine-specific, which defeats the point of it.
+    """
+    parts = [p.lower() for p in path.parts]
+    if "sop" in parts:
+        return "sop", "generated", "sop/%s" % path.name
+    if "circular" in parts:
+        return "circular", "generated", "circular/%s" % path.name
+    return "platform_doc", "repo", ""
+
+
+META = re.compile(r"\*\*(Status|Effective from|Effective to|Replaced by|Replaces):\*\*\s*"
+                  r"([^|\n]+)")
+
+
+def circular_meta(md: str) -> dict:
+    """
+    Read the header a circular carries. Without this every circular lands as
+    'current' and the supersession filter has nothing to filter on, which is
+    exactly the failure the corpus was built to catch.
+    """
+    found = {k.lower(): v.strip() for k, v in META.findall(md)}
+    status = "superseded" if found.get("status", "").upper().startswith("SUPERSEDED") \
+        else "current"
+    return {
+        "status": status,
+        "effective_from": found.get("effective from") or None,
+        "effective_to": found.get("effective to") or None,
+        # stored as a document id so it can be joined, not as a human label
+        "superseded_by": (doc_id("circular/%s.md" % found["replaced by"])
+                          if found.get("replaced by") else None),
+    }
+
+
 def ingest_file(w: Writer, path: Path, repo_root: Path | None) -> None:
     suffix = path.suffix.lower()
     raw = path.read_text(encoding="utf-8", errors="replace")
@@ -100,13 +140,23 @@ def ingest_file(w: Writer, path: Path, repo_root: Path | None) -> None:
     else:
         return
 
-    try:
-        uri = str(path.relative_to(repo_root)) if repo_root else str(path)
-    except ValueError:
-        uri = str(path)
+    doc_type, source, uri = classify(path)
+    if not uri:
+        try:
+            uri = str(path.relative_to(repo_root)).replace("\\", "/") if repo_root \
+                else str(path)
+        except ValueError:
+            uri = str(path)
 
-    w.put(source_uri=uri, title=path.stem.replace("-", " ").replace("_", " "),
-          doc_type="platform_doc", source="repo", chunks=chunks)
+    extra = circular_meta(raw) if doc_type == "circular" else {}
+    title = path.stem.replace("-", " ").replace("_", " ")
+    if doc_type in ("sop", "circular"):
+        first = raw.lstrip().splitlines()[0] if raw.strip() else ""
+        if first.startswith("# "):
+            title = first[2:].strip()
+
+    w.put(source_uri=uri, title=title, doc_type=doc_type, source=source,
+          chunks=chunks, **extra)
 
 
 def ingest_sim(w: Writer, sim_db: str, limit: int | None) -> None:
