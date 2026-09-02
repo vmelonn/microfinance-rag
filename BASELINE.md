@@ -4,7 +4,58 @@ Keyword was recorded first, before any vector search existed, so later changes
 had something to beat. Vector and hybrid were then measured on the identical
 question set.
 
-## Result
+## Result at 10,160 chunks
+
+The corpus was scaled from 258 chunks to 10,160 by running the simulator to
+93,687 unique narratives and ingesting 10,000 of them.
+
+| Measure | keyword | vector | hybrid | hybrid + rerank |
+|---|---|---|---|---|
+| Documented, retrieval@5 | 79.2% | 79.2% | **91.7%** | 79.2% |
+| Held out, at least one | 87.5% | 87.5% | 75.0% | 75.0% |
+| Supersession | 100% | 100% | 100% | 100% |
+| Refusal | 100% | 100% | 100% | 100% |
+
+Two results here were not what I expected, and both are more useful than the
+numbers themselves.
+
+### Reranking made it worse, not better
+
+The build order predicted "the largest single jump here". It was a 12.5 point
+**drop**, from 91.7% to 79.2%.
+
+The reranker is `cross-encoder/ms-marco-MiniLM-L-6-v2`, trained on MS MARCO,
+which is web search passages answering natural questions. This corpus is
+numbered operational procedures with heading trails prepended to every chunk.
+The model is confidently reordering on a notion of relevance learned somewhere
+else, and it is worse at this than the fusion ranking it replaced.
+
+The lesson is not that reranking does not work. It is that a cross-encoder is a
+*trained judgement*, and an untuned one imported from another domain is a
+liability rather than a free win. Whether a larger in-domain reranker
+(`bge-reranker-v2-m3`) recovers it is the next thing to measure, and it should
+be measured rather than assumed, exactly as this was.
+
+### Corpus growth changed results through filters that should have isolated it
+
+Keyword and vector both scored **exactly the same** at 258 and at 10,160 chunks.
+Hybrid dropped 4.1 points, from 95.8% to 91.7%.
+
+The eligible set was identical in both runs: the documented questions filter with
+`source != 'sim'`, which leaves **160 chunks either way**. The 10,000 narratives
+were never candidates.
+
+They still changed the answer, because **BM25's term statistics are global**.
+Ten thousand narratives full of "customer", "charged", "transaction" and
+"posting" drove down the inverse document frequency of exactly those terms, so
+the same 160 chunks ranked differently. `DUPLICATE_POSTING`, whose question is
+"the customer was charged twice for one transaction", is precisely the casualty
+that mechanism predicts.
+
+Worth carrying: a query-time filter does not insulate a ranking from corpus
+growth. Anything sharing an index shares its statistics.
+
+## Earlier result at 258 chunks
 
 | Measure | keyword | vector | **hybrid** |
 |---|---|---|---|

@@ -216,7 +216,9 @@ deliberate about that rather than drifting into it.
    tuned, so it cannot be fitted to.
 4. **Retrieval, measured.** Keyword only first, and record retrieval@5. Then add
    vector and fusion, and record it again. The comparison is the deliverable.
-5. **Rerank.** Measure again. Expect the largest single jump here.
+5. **Rerank.** Measure again. Measured: an off-the-shelf MS MARCO
+   cross-encoder made it 12.5 points *worse*, not better. See BASELINE.md.
+   An in-domain reranker may still help; assume nothing.
 6. **The router and the SQL tool.** Read-only, view-scoped, statement shown to the
    user. This is where a wrong answer becomes a visible wrong query instead of an
    invisible wrong number.

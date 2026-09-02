@@ -17,7 +17,6 @@ which is the one thing the two rankings genuinely share.
 from __future__ import annotations
 
 import array
-import math
 import sqlite3
 from dataclasses import dataclass
 
@@ -30,20 +29,6 @@ def _unpack(blob: bytes) -> array.array:
     a = array.array("f")
     a.frombytes(blob)
     return a
-
-
-def _cosine(a: array.array, b: array.array) -> float:
-    # Vectors are stored normalised, so this is a dot product. Guarding the
-    # norms anyway costs nothing and stops a silently wrong number if an
-    # un-normalised vector ever gets written.
-    dot = na = nb = 0.0
-    for x, y in zip(a, b):
-        dot += x * y
-        na += x * x
-        nb += y * y
-    if na == 0.0 or nb == 0.0:
-        return 0.0
-    return dot / math.sqrt(na * nb)
 
 
 @dataclass
@@ -60,16 +45,30 @@ class Hybrid:
         self.conn = sqlite3.connect("file:%s?mode=ro" % index_path, uri=True)
         self.conn.row_factory = sqlite3.Row
         self.encoder = encoder          # anything with .encode([str]) -> vectors
+        self._matrix_cache: dict = {}
 
     # ------------------------------------------------------------------ vector
 
-    def vector_search(self, query: str, *, k: int = 10,
-                      current_only: bool = True,
-                      exclude_sources: list[str] | None = None) -> list[Hit]:
-        if self.encoder is None:
-            return []
+    def _load_matrix(self, current_only: bool,
+                     exclude_sources: tuple[str, ...]) -> tuple:
+        """
+        Read every eligible vector once into one numpy matrix, and keep it.
 
-        qv = array.array("f", self.encoder.encode([query], normalize_embeddings=True)[0])
+        The first version scored chunk by chunk in a Python loop, which was
+        invisible at 258 chunks and unusable at 50,000: the inner product is
+        384 multiplies, so a query became roughly 19 million Python-level
+        operations. As one matrix multiply it is milliseconds, and the memory
+        is trivial (50k x 384 float32 is about 77MB).
+
+        Cached per filter combination, because the filter changes which rows
+        are eligible and a cache that ignored it would silently answer the
+        wrong question.
+        """
+        key = (current_only, exclude_sources)
+        if key in self._matrix_cache:
+            return self._matrix_cache[key]
+
+        import numpy as np
 
         where = ["k.embedding IS NOT NULL"]
         params: list = []
@@ -77,26 +76,65 @@ class Hybrid:
             where.append("d.status = 'current'")
         if exclude_sources:
             where.append("d.source NOT IN (%s)" % ",".join("?" * len(exclude_sources)))
-            params += exclude_sources
+            params += list(exclude_sources)
 
         sql = """SELECT k.id, k.document_id, d.doc_type, d.title, d.source_uri,
                         k.section_path, k.text, k.embedding
                  FROM chunks k JOIN documents d ON d.id = k.document_id
                  WHERE %s""" % " AND ".join(where)
 
+        rows = self.conn.execute(sql, params).fetchall()
+        if not rows:
+            empty = (np.zeros((0, 1), dtype="float32"), [])
+            self._matrix_cache[key] = empty
+            return empty
+
+        mat = np.vstack([np.frombuffer(r["embedding"], dtype="float32")
+                         for r in rows])
+        # Vectors are written normalised, so a dot product is the cosine.
+        # Re-normalising guards against an un-normalised vector ever being
+        # written and silently skewing every score.
+        norms = np.linalg.norm(mat, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        mat = mat / norms
+
+        self._matrix_cache[key] = (mat, rows)
+        return mat, rows
+
+    def vector_search(self, query: str, *, k: int = 10,
+                      current_only: bool = True,
+                      exclude_sources: list[str] | None = None) -> list[Hit]:
+        if self.encoder is None:
+            return []
+
+        import numpy as np
+
+        mat, rows = self._load_matrix(current_only, tuple(exclude_sources or ()))
+        if not rows:
+            return []
+
+        qv = np.asarray(self.encoder.encode([query], normalize_embeddings=True)[0],
+                        dtype="float32")
+        n = np.linalg.norm(qv)
+        if n:
+            qv = qv / n
+
+        sims = mat @ qv
+        top = np.argpartition(-sims, min(k, len(sims) - 1))[:k]
+        top = top[np.argsort(-sims[top])]
+
         terms = content_terms(query)
         out = []
-        for r in self.conn.execute(sql, params):
-            sim = _cosine(qv, _unpack(r["embedding"]))
+        for i in top:
+            r = rows[int(i)]
             body = r["text"].lower()
             cov = (sum(1 for t in terms if t in body) / len(terms)) if terms else 0.0
             out.append(Hit(chunk_id=r["id"], document_id=r["document_id"],
                            doc_type=r["doc_type"], title=r["title"],
                            source_uri=r["source_uri"],
                            section_path=r["section_path"] or "",
-                           text=r["text"], score=sim, coverage=cov))
-        out.sort(key=lambda h: h.score, reverse=True)
-        return out[:k]
+                           text=r["text"], score=float(sims[i]), coverage=cov))
+        return out
 
     # ------------------------------------------------------------------ fusion
 

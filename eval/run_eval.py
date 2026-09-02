@@ -37,6 +37,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.retrieve.hybrid import Hybrid, load_encoder  # noqa: E402
+from app.retrieve.rerank import Reranker  # noqa: E402
 from app.retrieve.store import today  # noqa: E402
 from sim.catalogue import DOCUMENTED, HELD_OUT  # noqa: E402
 
@@ -67,18 +68,28 @@ def hit_docs(hits) -> list[str]:
 
 def run(index: str, k: int, floor: float, verbose: bool,
         mode: str = "keyword", model: str | None = None,
-        device: str = "auto") -> int:
+        device: str = "auto", rerank_model: str | None = None,
+        pool: int = 30) -> int:
     encoder = None
     if mode in ("vector", "hybrid"):
         if not model:
             print("--mode %s needs --model" % mode); return 2
         encoder = load_encoder(model, device)
 
+    reranker = Reranker(rerank_model, device) if rerank_model else None
     store = Hybrid(index, encoder=encoder)
     as_of = today()
 
+    def search(q, **kw):
+        """Retrieve wide then rerank down, or just retrieve."""
+        if reranker is None:
+            return store.search(q, k=k, mode=mode, **kw)
+        wide = store.search(q, k=pool, mode=mode, **kw)
+        return reranker.rerank(q, wide, k=k)
+
     print("=" * 74)
-    print("RETRIEVAL EVAL   mode=%s   k=%d   floor=%.2f" % (mode, k, floor))
+    label = mode + (" + rerank" if rerank_model else "")
+    print("RETRIEVAL EVAL   mode=%s   k=%d   floor=%.2f" % (label, k, floor))
     if model:
         print("                 model=%s" % model)
     print("=" * 74)
@@ -90,8 +101,7 @@ def run(index: str, k: int, floor: float, verbose: bool,
         want = sop_uri(a.code)
         for q in a.questions:
             total += 1
-            docs = hit_docs(store.search(q, k=k, as_of=as_of, mode=mode,
-                                         exclude_sources=["sim"]))
+            docs = hit_docs(search(q, as_of=as_of, exclude_sources=["sim"]))
             if want in docs:
                 hits_at_k += 1
             else:
@@ -111,8 +121,7 @@ def run(index: str, k: int, floor: float, verbose: bool,
         wanted = {sop_uri(c) for c in a.analogous_to}
         for q in a.questions:
             h_total += 1
-            docs = set(hit_docs(store.search(q, k=k, as_of=as_of, mode=mode,
-                                             exclude_sources=["sim"])))
+            docs = set(hit_docs(search(q, as_of=as_of, exclude_sources=["sim"])))
             found = wanted & docs
             if found == wanted:
                 h_hits += 1
@@ -135,7 +144,7 @@ def run(index: str, k: int, floor: float, verbose: bool,
         old_2023 = "circular/CIR-%s-2023.md" % slug
         q = "what is the current fee cap for %s" % product
         s_total += 1
-        docs = hit_docs(store.search(q, k=k, as_of=as_of, mode=mode))
+        docs = hit_docs(search(q, as_of=as_of))
         if old_2023 in docs:
             leaked.append((product, "superseded circular was returned"))
         elif current in docs:
@@ -152,7 +161,7 @@ def run(index: str, k: int, floor: float, verbose: bool,
     # ------------------------------------------------------------- refusal
     r_ok = 0
     for q in REFUSAL_QUESTIONS:
-        hits = store.search(q, k=k, as_of=as_of, mode=mode, exclude_sources=["sim"])
+        hits = search(q, as_of=as_of, exclude_sources=["sim"])
         # Coverage, not BM25. Measured on this corpus, score does not separate
         # the two populations (real 6.38-9.07, junk 4.67-6.90) but coverage over
         # content words does, cleanly: junk 0.00, real 0.25-0.75.
@@ -190,8 +199,13 @@ def main() -> int:
     p.add_argument("--model", default=None)
     p.add_argument("--device", default="auto",
                    choices=["auto", "cpu", "cuda"])
+    p.add_argument("--rerank", dest="rerank_model", default=None,
+                   help="cross-encoder model; enables reranking")
+    p.add_argument("--pool", type=int, default=30,
+                   help="candidates retrieved before reranking")
     a = p.parse_args()
-    return run(a.index, a.k, a.floor, a.verbose, a.mode, a.model, a.device)
+    return run(a.index, a.k, a.floor, a.verbose, a.mode, a.model,
+               a.device, a.rerank_model, a.pool)
 
 
 if __name__ == "__main__":
