@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from app.answer import prompt as prompt_mod  # noqa: E402
 from app.answer.citations import verify  # noqa: E402
+from app.answer.llm import call  # noqa: E402
 from app.answer.router import Router  # noqa: E402
 from app.retrieve.hybrid import Hybrid, load_encoder  # noqa: E402
 from app.retrieve.store import today  # noqa: E402
@@ -38,6 +39,10 @@ def main() -> int:
     p.add_argument("--device", default="auto")
     p.add_argument("--mode", default="hybrid")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--backend", default="ollama",
+                   choices=["ollama", "anthropic"],
+                   help="ollama keeps everything on this machine")
+    p.add_argument("--local-model", default="qwen2.5:7b-instruct")
     p.add_argument("--rrn", default=None, help="a fact to pass through")
     a = p.parse_args()
 
@@ -70,10 +75,8 @@ def main() -> int:
         print("dry run: nothing was sent")
         return 0
 
-    import anthropic
-
-    client = anthropic.Anthropic()
-    response = client.messages.create(**kwargs)
+    response = call(kwargs, backend=a.backend, local_model=a.local_model)
+    print("backend=%s model=%s" % (response.backend, response.model))
 
     v = verify(response, kwargs,
                require_citation=(routed.tier in ("exact", "derived")))
