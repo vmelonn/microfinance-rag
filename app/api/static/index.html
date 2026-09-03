@@ -49,6 +49,7 @@
   .f-C{background:var(--accent-soft);color:var(--accent)}
   .f-D,.f-E{background:var(--warn-soft);color:var(--warn)}
   .f-F{background:var(--bad-soft);color:var(--bad)}
+  .f-G{background:var(--good-soft);color:var(--good)}
   .tags{display:flex;gap:8px;flex-wrap:wrap;font:12px "IBM Plex Mono",monospace}
   .tag{background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:2px 8px}
   h2{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.07em;
@@ -114,6 +115,9 @@ const EXAMPLES = [
   ["D · derived",   "the amounts do not match between switch and ledger", ""],
   ["F · none",      "who won the cricket match yesterday", ""],
   ["F · none",      "what is our policy on annual leave", ""],
+  ["G · sweep",     "find any ledger discrepancies", ""],
+  ["G · find",      "find an rrn that shows this", "DUPLICATE_POSTING"],
+  ["G · find",      "show me an example of an unbalanced entry", "UNBALANCED_ENTRY"],
 ];
 
 const $ = s => document.querySelector(s);
@@ -206,6 +210,41 @@ function render(d) {
       retrieved. This is not a ranking problem: nothing in the corpus is about
       this question at all.</p></div>`;
 
+  if (d.sweep && d.sweep.length) {
+    html += `<div class="card"><h2>Reconciliation sweep &middot; every predicate</h2>
+      <table><thead><tr><th>class</th><th>count</th><th>severity</th>
+      <th>money</th><th>examples</th></tr></thead><tbody>` +
+      d.sweep.filter(f => f.count > 0).map(f => `<tr>
+        <td>${esc(f.code)}</td><td>${f.count}</td>
+        <td class="${f.severity === "critical" ? "no" : ""}">${esc(f.severity)}</td>
+        <td>${f.money_at_risk ? "at risk" : ""}</td>
+        <td>${f.examples.map(r => `<span class="chip" data-rrn="${esc(r)}">${esc(r)}</span>`).join(" ")}</td>
+      </tr>`).join("") + `</tbody></table>
+      <p class="note" style="margin-top:10px">Ordered by severity from the
+      catalogue, then by whether money is at risk. Both are data, not judgement.
+      Name a class to see its statement and full list.</p></div>`;
+  }
+
+  if (d.detect) {
+    const t = d.detect;
+    html += `<div class="card"><h2>Detection &middot; ${esc(t.code)}</h2>`;
+    if (!t.runnable) {
+      html += `<p class="empty">No predicate exists for this class against the
+        current schema.</p>`;
+    } else if (!t.rrns.length) {
+      html += `<p class="empty">The predicate ran and matched no rows.</p>`;
+    } else {
+      html += `<p class="note" style="margin-bottom:8px">${t.rrns.length}
+        instance(s). Click one to put it in the RRN box.</p><div class="chips">` +
+        t.rrns.map(r => `<span class="chip" data-rrn="${esc(r)}">${esc(r)}</span>`).join("") +
+        `</div>`;
+    }
+    if (t.statement)
+      html += `<h2 style="margin-top:14px">The predicate, run over every row</h2>
+               <pre>${esc(t.statement)}</pre>`;
+    html += `</div>`;
+  }
+
   if (d.sql) {
     html += `<div class="card"><h2>SQL &middot; ${esc(d.sql.name || "no query matched")}</h2>`;
     if (d.sql.error) html += `<p class="empty">${esc(d.sql.error)}</p>`;
@@ -250,6 +289,9 @@ function render(d) {
     html += `<div class="card"><h2>Prompt that was sent</h2><pre>${esc(d.prompt)}</pre></div>`;
 
   $("#out").innerHTML = html;
+  document.querySelectorAll("[data-rrn]").forEach(el => {
+    el.onclick = () => { $("#rrn").value = el.dataset.rrn; };
+  });
 }
 
 async function submit(generate) {

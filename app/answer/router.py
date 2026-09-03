@@ -48,6 +48,17 @@ NUMERIC = re.compile(
 LOOKUP = re.compile(
     r"\b(balance|limit|status of|current balance|available funds)\b", re.I)
 
+# A lookup is about one entity, so it needs an identifier. lookup.py already
+# refuses without one, and the router should not send a question there that it
+# knows will be refused.
+#
+# Bare "balance" was too greedy. "Is anything out of balance" asks whether the
+# books balance, which is a sweep across every account, and it was being routed
+# to a per-account lookup whose only possible reply was "no account in the
+# question". The word is shared; the question is not.
+IDENTIFIER = re.compile(
+    r"\b(03\d{9}|acc_[a-z]+_\d+|[0-9A-F]{12}|\d{12,19})\b", re.I)
+
 
 @dataclass
 class Routed:
@@ -63,20 +74,136 @@ class Routed:
         return self.procedure + self.precedent + self.reference
 
 
+# "Show me one of these." A fourth intent, and an obvious one in hindsight: an
+# operator wanting to see an instance of a defect is not asking for a count, an
+# exact value, or a procedure. Without it, "find an RRN that shows this"
+# returned the procedure, which answers a question nobody asked.
+FIND = re.compile(
+    r"\b(find|show me|give me|example|examples|instance|instances|"
+    r"which (?:rrn|transaction|account|posting)s?|any (?:rrn|case|example))\b",
+    re.I)
+
+
+# --------------------------------------------------------------------------
+# Semantic intent, because trigger words do not scale.
+#
+# Measured on fifteen questions, the regexes routed nine correctly and missed
+# two that mean exactly what a matched one means: "what is wrong with the
+# ledger" and "are there any problems in the data" are the same request as
+# "find any ledger discrepancies", and got retrieval instead of a sweep. The
+# fix is not another keyword. It is the same conclusion the SQL selector
+# reached: semantic for recall, lexical for precision, and neither alone.
+#
+# The regexes stay as a fast path because when they fire they are certain and
+# free. Similarity only decides what they leave as "guidance", which is the
+# bucket everything unmatched falls into.
+# --------------------------------------------------------------------------
+
+INTENT_EXEMPLARS = {
+    "find": [
+        "find any ledger discrepancies",
+        "what is wrong with the ledger",
+        "are there any problems in the data",
+        "show me an example of this defect",
+        "which transactions are affected",
+        "list the breaks we have right now",
+        # Added after measurement. "Is anything out of balance" was landing on
+        # lookup, because the word balance dominates and every lookup exemplar
+        # is about one account. Asking whether the books balance and asking what
+        # one wallet holds are different questions that share a word, and the
+        # exemplar set has to say so.
+        "is anything out of balance",
+        "is the ledger balanced",
+        "give me the state of the books",
+        "anything broken right now",
+    ],
+    "numeric": [
+        "how many disputes are open",
+        "what is the total value of transactions",
+        "count the failures by response code",
+        "what proportion of cases were upheld",
+    ],
+    "lookup": [
+        "what is the balance on this account",
+        "is this card blocked",
+        "what is the status of this account",
+    ],
+    "guidance": [
+        "what do I do about a duplicate posting",
+        "how should this break be resolved",
+        "what does the procedure say about reversals",
+        "explain how the settlement process works",
+    ],
+}
+
+# Set from measurement, not taste. Across seven in-domain phrasings and six
+# junk ones the two populations separate: real bottoms out at 0.69, junk tops
+# out at 0.64. The floor sits between them.
+#
+# Without a floor there is no refusal, because cosine always returns a nearest
+# neighbour: at 0.60 "what is our policy on annual leave" scored 0.62 against
+# an account-status exemplar and was routed to a balance lookup. Same failure
+# the SQL selector had, for the same reason.
+#
+# The gap is 0.05 on thirteen examples, which is narrow. Re-measure when the
+# exemplar set grows rather than treating this as settled.
+SEMANTIC_FLOOR = 0.67
+_intent_cache: dict = {}
+
+
+def classify_semantic(question: str, encoder, floor: float = SEMANTIC_FLOOR):
+    """Nearest intent by meaning, or None when nothing is close enough."""
+    import numpy as np
+
+    key = id(encoder)
+    if key not in _intent_cache:
+        labels, texts = [], []
+        for intent, examples in INTENT_EXEMPLARS.items():
+            labels += [intent] * len(examples)
+            texts += examples
+        mat = np.asarray(encoder.encode(texts, normalize_embeddings=True),
+                         dtype="float32")
+        _intent_cache[key] = (labels, mat)
+    labels, mat = _intent_cache[key]
+
+    qv = np.asarray(encoder.encode([question], normalize_embeddings=True)[0],
+                    dtype="float32")
+    sims = mat @ qv
+    i = int(sims.argmax())
+    return (labels[i], float(sims[i])) if sims[i] >= floor else (None, float(sims[i]))
+
+
 def classify(question: str) -> str:
+    # FIND is tested first, but only when the question is not also numeric.
+    # "Find an RRN that shows this" and "how many are there" are different
+    # questions with different answers, and the second one contains no request
+    # for an instance.
+    if FIND.search(question) and not NUMERIC.search(question):
+        return "find"
     if NUMERIC.search(question):
         return "numeric"
-    if LOOKUP.search(question):
+    if LOOKUP.search(question) and IDENTIFIER.search(question):
         return "lookup"
     return "guidance"
 
 
 class Router:
     def __init__(self, store: Hybrid, *, mode: str = "hybrid",
-                 floor: float = 0.36):
+                 floor: float = 0.36, encoder=None):
         self.store = store
         self.mode = mode
         self.floor = floor
+        # Reuse the retrieval encoder rather than loading a second one.
+        self.encoder = encoder if encoder is not None else getattr(
+            store, "encoder", None)
+
+    def intent_of(self, question: str) -> str:
+        """Regex first because it is certain and free; similarity for the rest."""
+        intent = classify(question)
+        if intent != "guidance" or self.encoder is None:
+            return intent
+        semantic, _score = classify_semantic(question, self.encoder)
+        return semantic or "guidance"
 
     def route(self, question: str, *, k: int = 5, as_of: str | None = None,
               precedent_k: int = 3, reference_k: int = 2,
@@ -98,7 +225,7 @@ class Router:
         Coverage separates a real question from junk, which is what the refusal
         floor uses it for; it does not separate a right answer from a wrong one.
         """
-        intent = classify(question)
+        intent = self.intent_of(question)
         r = Routed(question=question, intent=intent)
 
         if intent == "numeric":

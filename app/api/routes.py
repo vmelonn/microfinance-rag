@@ -30,6 +30,7 @@ from pydantic import BaseModel  # noqa: E402
 
 from app.answer import lookup as lookup_mod  # noqa: E402
 from app.answer import preflight as pre_mod  # noqa: E402
+from sim import detect as detect_mod  # noqa: E402
 from app.answer import prompt as prompt_mod  # noqa: E402
 from app.answer import sql_tool  # noqa: E402
 from app.answer.citations import verify  # noqa: E402
@@ -43,6 +44,7 @@ DATA = os.environ.get("RAG_DATA", "sim.db")
 LEDGER = os.environ.get("RAG_LEDGER", "../microfinance-microservices/practice.db")
 EMBED = os.environ.get("RAG_EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 DEVICE = os.environ.get("RAG_DEVICE", "auto")
+DEFECTS = os.environ.get("RAG_DEFECTS", "defects.db")
 
 app = FastAPI(title="microfinance-rag test harness")
 _state: dict = {}
@@ -77,6 +79,8 @@ def _hits(hits) -> list[dict]:
 # Which of the six flows was taken. The letters match the diagram in the README
 # so a screenshot and the docs describe the same thing.
 def _flow(routed) -> tuple[str, str]:
+    if routed.intent == "find":
+        return "G", "an instance, found by the defect class's own predicate"
     if routed.intent == "numeric":
         return "A", "counted by SQL, never estimated"
     if routed.intent == "lookup":
@@ -175,6 +179,56 @@ def ask(req: Ask):
             "withheld": r.error or None,
             "citations": [], "problems": [r.error] if r.error else [],
         }
+        return out
+
+    if flow == "G":
+        code = req.anomaly_code or None
+        if not code:
+            # No class named means run every predicate. A reconciliation engine
+            # does not ask which defect to look for, and the earlier "pick a
+            # class" reply had that backwards: there IS a general predicate and
+            # it is the union of the specific ones.
+            found = detect_mod.sweep(DEFECTS)
+            out["sweep"] = found
+            total = sum(f["count"] for f in found if f.get("count", 0) > 0)
+            lines = ["%d discrepancies across %d classes, worst first:"
+                     % (total, len(found)), ""]
+            for f in found:
+                if f.get("count", -1) < 0:
+                    continue
+                lines.append("  %-24s %5d  %-8s %s"
+                             % (f["code"], f["count"], f["severity"],
+                                "money at risk" if f["money_at_risk"] else ""))
+                lines.append("      %s" % f["title"])
+                lines.append("      e.g. %s" % ", ".join(f["examples"]))
+            lines += ["", "Each line is one predicate run over every row. Name a "
+                          "class to see its statement and full instance list."]
+            out["answer"] = {
+                "backend": "detection sweep", "model": "all predicates",
+                "verified": True, "text": "\n".join(lines),
+                "withheld": None, "citations": [], "problems": []}
+            return out
+
+        rrns = detect_mod.find(DEFECTS, code, limit=10)
+        out["detect"] = {"code": code,
+                         "statement": detect_mod.DETECTION.get(code, "").strip(),
+                         "rrns": rrns,
+                         "runnable": code in detect_mod.DETECTION}
+        if not out["detect"]["runnable"]:
+            body = ("No detection predicate exists for %s against this schema. "
+                    "Six classes need columns the platform does not have, and "
+                    "shipping a query that looks executable and is not would be "
+                    "worse than saying so." % code)
+        elif rrns:
+            body = ("%d instance(s):\n\n  %s\n\n"
+                    "Found by running this over every row:\n\n%s"
+                    % (len(rrns), "\n  ".join(rrns),
+                       detect_mod.DETECTION[code].strip()))
+        else:
+            body = "The predicate ran and matched no rows. There are none."
+        out["answer"] = {
+            "backend": "detection sql", "model": code, "verified": True,
+            "text": body, "withheld": None, "citations": [], "problems": []}
         return out
 
     if flow == "B":

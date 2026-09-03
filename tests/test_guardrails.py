@@ -442,3 +442,39 @@ def test_fabricated_quote_is_rejected():
     v = verify(_fake_reply("x", [("this was never in any block", 0)]), kw)
     assert not v.ok
     assert any("no supplied block" in p for p in v.problems)
+
+
+# ------------------------------------------------------- intent routing
+
+def test_find_intent_is_distinct_from_numeric():
+    """
+    'Find an RRN that shows this' and 'how many are there' are different
+    questions. Without a find intent the first returned the procedure, which
+    answers a question nobody asked.
+    """
+    from app.answer.router import classify
+    assert classify("find an rrn that shows this") == "find"
+    assert classify("show me an example of a duplicate posting") == "find"
+    assert classify("how many duplicate postings are there") == "numeric"
+    assert classify("what do I do about a duplicate posting") == "guidance"
+
+
+def test_semantic_intent_needs_the_floor():
+    """
+    Cosine always returns a nearest neighbour and never an absence, so without
+    a floor there is no refusal. At 0.60, 'what is our policy on annual leave'
+    scored 0.62 against an account-status exemplar and was routed to a balance
+    lookup.
+    """
+    from app.answer.router import SEMANTIC_FLOOR
+    assert SEMANTIC_FLOOR >= 0.65
+
+
+def test_detection_predicates_are_select_only():
+    """The catalogue's detection SQL was documentation shaped like code: one of
+    twelve executed. These run, and a non-SELECT fails at import."""
+    from sim import detect
+    assert len(detect.DETECTION) >= 10
+    for code, sql in detect.DETECTION.items():
+        assert sql.strip().upper().startswith("SELECT"), code
+        assert ";" not in sql, code
