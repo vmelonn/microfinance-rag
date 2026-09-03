@@ -3,6 +3,26 @@
 What stops this being dangerous. Grouped by where the failure would happen, because
 a control at the wrong layer is decoration.
 
+## Implementation status
+
+| Control | Where | Status |
+|---|---|---|
+| Numeric questions never reach a model | `router.classify` | **done**, tested |
+| Exact values come from the system of record | `answer/lookup.py` | **done**, tested |
+| Filter before similarity | `store.search` | **done**, tested |
+| Superseded documents never eligible | `documents.status` | **done**, tested |
+| Refusal floor on content-word coverage | `router._tier` | **done**, tested |
+| Retrieved text isolated in a document block | `answer/prompt.py` | **done**, dry-run reviewed |
+| Citations verified against source | `answer/citations.py` | built, **never seen a real citation** |
+| No invented identifiers | `answer/citations.py` | built, untested against a live model |
+| Read-only enforced at the credential | `sql_tool`, `lookup` | **done**, tested |
+| Single SELECT, params bound, rows bounded | `sql_tool` | **done**, tested |
+| Audit row per answer | not built | |
+| Kill switch | not built | |
+
+28 tests cover the rows marked tested. The three unmarked rows are the honest
+gap: everything downstream of the model call is written but has never run.
+
 ---
 
 ## The three answer tiers

@@ -106,15 +106,56 @@
 <div class="wrap">
 
 <header>
-  <div class="eyebrow">Internship project &#183; design brief</div>
+  <div class="eyebrow">Internship project &#183; built and measured</div>
   <h1>microfinance-rag</h1>
   <p class="lede">
     A retrieval layer over the existing payment platform. Separate repository, same
     OpenShift namespace, four read-only seams. It puts a question box on the operator
     console and answers with citations drawn from the platform's own documentation and
-    trace history.
+    case history.
+  </p>
+  <p class="lede">
+    Built and measured. Four of its six question paths never reach a model at all,
+    which was not the plan at the start: measurement pushed each one there.
   </p>
 </header>
+
+<section class="panel">
+  <h2>Where it stands</h2>
+  <table>
+    <thead><tr><th>Flow</th><th>Trigger</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>A &middot; numeric</td><td>"how many", "total"</td><td><strong>done</strong>, a closed query registry</td></tr>
+      <tr><td>B &middot; lookup</td><td>"balance", "card status"</td><td><strong>done</strong>, from the system of record</td></tr>
+      <tr><td>C &middot; exact</td><td>defect class known</td><td>retrieval done, generation not yet run</td></tr>
+      <tr><td>D &middot; derived</td><td>novel defect, procedure found</td><td>retrieval done, generation not yet run</td></tr>
+      <tr><td>E &middot; derived</td><td>novel defect, analogues only</td><td>retrieval done, generation not yet run</td></tr>
+      <tr><td>F &middot; none</td><td>nothing clears the floor</td><td><strong>done</strong>, correct by design</td></tr>
+    </tbody>
+  </table>
+  <p>
+    The same pattern appeared three separate times, for procedures, for the tier
+    decision, and for precedent: <strong>when the defect class is known, it is a
+    lookup rather than a search.</strong> Each began as retrieval, and each time
+    measurement said the deterministic path was simpler and correct.
+  </p>
+  <h3>Measured</h3>
+  <table>
+    <tbody>
+      <tr><td>Documented retrieval@5, hybrid</td><td><strong>100%</strong> (24/24)</td></tr>
+      <tr><td>Held out, at least one analogue</td><td><strong>100%</strong> (8/8)</td></tr>
+      <tr><td>Supersession, old suppressed</td><td><strong>100%</strong>, figure present in the chunk</td></tr>
+      <tr><td>Refusal, junk declined</td><td><strong>100%</strong> (5/5)</td></tr>
+      <tr><td>Precedent by search, novel defects</td><td>37.5% (9/24)</td></tr>
+      <tr><td>Guardrail tests</td><td>28 passing</td></tr>
+    </tbody>
+  </table>
+  <p>
+    The last two rows are the honest ones. Precedent for a <em>novel</em> defect is
+    weak, and that bounds what a derived answer can be grounded in. Precedent for a
+    known class is a lookup and exact by construction, which is why it is not scored.
+  </p>
+</section>
 
 <section class="panel">
   <h2>Why this exists</h2>
@@ -398,6 +439,8 @@
 </section>
 
 <footer>
+  Numbers and method are in BASELINE.md, which records what each measurement taught,
+  including two bugs the eval could not reach and the tests found.
   Design reasoning behind the retrieval choices is in RPA/04-rag-for-microfinance-ops.md;
   the request walkthrough is in RPA/rag/copilot-flow.html. Service ports and ownership are
   from the microfinance-microservices README; resource observations are from

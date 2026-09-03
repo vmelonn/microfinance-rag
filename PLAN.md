@@ -207,22 +207,25 @@ deliberate about that rather than drifting into it.
 
 ## Build order
 
-1. **Schema and migrations.** `documents` and `chunks`, with HNSW on the embedding
-   and GIN on the tsvector. Second Postgres instance, per limit 3.
-2. **Ingest, offline.** Loaders, structure-aware chunker, metadata, embed, write.
-   Verify by counting chunks per source and reading twenty of them by hand.
-3. **The eval set, before any tuning.** Thirty to fifty questions drawn from the ten
-   recorded scenarios, each with a known correct source. Written before retrieval is
-   tuned, so it cannot be fitted to.
-4. **Retrieval, measured.** Keyword only first, and record retrieval@5. Then add
-   vector and fusion, and record it again. The comparison is the deliverable.
+**Done unless marked otherwise.**
+
+1. ~~**Schema and migrations.**~~ Done, both dialects. sqlite+FTS5 for local so
+   the baseline needs no Postgres; postgres+pgvector for deployment.
+2. ~~**Ingest, offline.**~~ Done, idempotent on content hash. A chunker bug here
+   silently deleted every fee figure in the corpus; see BASELINE.md.
+3. ~~**The eval set, before any tuning.**~~ Done, generated from the catalogue so
+   the correct answer is known by construction. Five measures scored separately.
+4. ~~**Retrieval, measured.**~~ Done. Keyword 95.8%, vector 95.8%, hybrid 100%.
+   The two modes fail on almost disjoint questions, which is the whole case for
+   fusing them and is invisible in the aggregate score.
 5. **Rerank.** Measure again. Measured: an off-the-shelf MS MARCO
    cross-encoder made it 12.5 points *worse*, not better. See BASELINE.md.
    An in-domain reranker may still help; assume nothing.
-6. **The router and the SQL tool.** Read-only, view-scoped, statement shown to the
-   user. This is where a wrong answer becomes a visible wrong query instead of an
-   invisible wrong number.
-7. **Answer and citation verification.** Refuse when retrieval is weak.
+6. ~~**The router and the SQL tool.**~~ Done. A closed registry of vetted queries
+   rather than text-to-SQL, plus a lookup path for exact values. Four of six
+   flows now never reach a model at all.
+7. **Answer and citation verification.** Built and reviewed by dry run;
+   **generation has never actually run**, because the local model is not pulled.
 8. **Console tab, proxied through api-gateway.**
 9. **Deploy**, with query-time embedding sized to whatever the namespace allows.
 
