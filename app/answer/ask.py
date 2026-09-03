@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from app.answer import prompt as prompt_mod  # noqa: E402
 from app.answer.citations import verify  # noqa: E402
 from app.answer.llm import call  # noqa: E402
+from app.answer import lookup as lookup_mod  # noqa: E402
 from app.answer import sql_tool  # noqa: E402
 from app.answer.router import Router  # noqa: E402
 from app.retrieve.hybrid import Hybrid, load_encoder  # noqa: E402
@@ -47,6 +48,8 @@ def main() -> int:
     p.add_argument("--rrn", default=None, help="a fact to pass through")
     p.add_argument("--data", default=None,
                    help="sim database, for the numeric path")
+    p.add_argument("--ledger", default=None,
+                   help="practice.db, or an http:// ledger-service url")
     a = p.parse_args()
 
     encoder = load_encoder(a.model, a.device) if a.mode != "keyword" else None

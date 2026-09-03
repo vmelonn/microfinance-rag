@@ -262,3 +262,73 @@ def test_retrieved_chunk_carries_the_answer(index):
     assert not any("2,500" in h.text for h in hits), \
         "the superseded figure leaked into the results"
     s.close()
+
+
+# ---------------------------------------------------------------- lookup
+
+def test_lookup_needs_an_identifier():
+    """
+    An exact-value question without an identifier is refused, not guessed at.
+    Inferring which account someone meant is exactly the kind of helpfulness
+    that produces a confident answer about the wrong customer.
+    """
+    from app.answer.lookup import answer as look
+    v = look(None, "what is the current balance")
+    assert v.error and "identifier" in v.error
+
+
+def test_balance_is_derived_from_postings(tmp_path):
+    """
+    There is no balance column and there should not be. A stored figure is a
+    cache that can disagree with the entries beneath it, and the entries are
+    the truth.
+    """
+    import sqlite3 as s3
+    from app.answer.lookup import LocalLedger
+
+    db = str(tmp_path / "ledger.db")
+    c = s3.connect(db)
+    c.executescript("""
+        CREATE TABLE accounts (account_id TEXT, user_id TEXT, msisdn TEXT,
+                               type TEXT, opened_at TEXT);
+        CREATE TABLE ledger_entries (entry_id INTEGER, rrn TEXT, account_id TEXT,
+                                     entry_type TEXT, amount_cents INTEGER);
+        CREATE TABLE cards (card_number TEXT, account_id TEXT, status TEXT,
+                            issued_at TEXT);
+    """)
+    c.execute("INSERT INTO accounts VALUES ('acc_1','u1','03001112222','wallet','2026-01-01')")
+    c.executemany("INSERT INTO ledger_entries VALUES (?,?,?,?,?)",
+                  [(1, "R1", "acc_1", "credit", 10_000),
+                   (2, "R2", "acc_1", "debit", 2_500),
+                   (3, "R3", "acc_1", "credit", 500)])
+    c.commit()
+    c.close()
+
+    v = LocalLedger(db).balance("acc_1")
+    assert v.value == 8_000                    # 10000 - 2500 + 500
+    assert v.detail["postings summed"] == 3
+    assert v.as_at                             # a balance is true at a time
+    assert v.source
+
+
+def test_lookup_by_msisdn_and_missing_account(tmp_path):
+    import sqlite3 as s3
+    from app.answer.lookup import LocalLedger
+
+    db = str(tmp_path / "ledger2.db")
+    c = s3.connect(db)
+    c.executescript("""
+        CREATE TABLE accounts (account_id TEXT, user_id TEXT, msisdn TEXT,
+                               type TEXT, opened_at TEXT);
+        CREATE TABLE ledger_entries (entry_id INTEGER, rrn TEXT, account_id TEXT,
+                                     entry_type TEXT, amount_cents INTEGER);
+        CREATE TABLE cards (card_number TEXT, account_id TEXT, status TEXT,
+                            issued_at TEXT);
+    """)
+    c.execute("INSERT INTO accounts VALUES ('acc_9','u9','03009998888','wallet','2026-01-01')")
+    c.execute("INSERT INTO ledger_entries VALUES (1,'R1','acc_9','credit',4200)")
+    c.commit(); c.close()
+
+    lg = LocalLedger(db)
+    assert lg.balance("03009998888").value == 4200
+    assert lg.balance("03000000000").error
