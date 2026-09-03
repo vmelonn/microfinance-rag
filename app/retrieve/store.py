@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import threading
 from dataclasses import dataclass
 from datetime import date
 
@@ -87,8 +88,14 @@ def to_match(query: str) -> str:
 
 class Store:
     def __init__(self, path: str):
-        self.conn = sqlite3.connect("file:%s?mode=ro" % path, uri=True)
+        # check_same_thread=False plus a lock, because a served request runs on
+        # whichever worker thread picks it up while the connection was opened on
+        # another. The connection is read-only, so the lock is about SQLite's
+        # per-connection cursor state rather than about data races.
+        self.conn = sqlite3.connect("file:%s?mode=ro" % path, uri=True,
+                                    check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        self.lock = threading.Lock()
 
     def search(self, query: str, *, k: int = 10,
                doc_types: list[str] | None = None,
@@ -142,7 +149,9 @@ class Store:
         terms = content_terms(query)
 
         hits = []
-        for r in self.conn.execute(sql, params):
+        with self.lock:
+            rows_ = self.conn.execute(sql, params).fetchall()
+        for r in rows_:
             cov = covered(terms, r["text"])
             hits.append(Hit(chunk_id=r["id"], document_id=r["document_id"],
                             doc_type=r["doc_type"], title=r["title"],

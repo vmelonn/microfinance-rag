@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>microfinance-rag test harness</title>
+<style>
+  :root {
+    --bg:#F4F6F8; --card:#fff; --line:#DBE1E8; --ink:#141922; --ink2:#4A5462;
+    --ink3:#78838F; --accent:#0B6FA4; --accent-soft:#E2EEF5;
+    --warn:#B8792B; --warn-soft:#F7EEDF; --bad:#C0392B; --bad-soft:#FBE9E7;
+    --good:#1E7A4C; --good-soft:#E3F3EA;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#10141A; --card:#171D25; --line:#2A333F; --ink:#E8ECF1; --ink2:#A3AEBC;
+      --ink3:#78838F; --accent:#3892C4; --accent-soft:#1B2C3A;
+      --warn:#C79A5E; --warn-soft:#2A2117; --bad:#D9604F; --bad-soft:#2E1B18;
+      --good:#5FBF8C; --good-soft:#16281F;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);line-height:1.55;
+       font:14px/1.55 "IBM Plex Sans",system-ui,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:28px 20px 60px;
+        display:flex;flex-direction:column;gap:18px}
+  h1{margin:0;font-size:20px;font-weight:600;letter-spacing:-.01em}
+  .sub{margin:0;color:var(--ink3);font-size:13px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px}
+  form{display:flex;flex-direction:column;gap:12px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+  label{display:flex;flex-direction:column;gap:4px;font-size:11px;
+        text-transform:uppercase;letter-spacing:.07em;color:var(--ink3);font-weight:600}
+  input,select{background:var(--bg);color:var(--ink);border:1px solid var(--line);
+               border-radius:6px;padding:8px 10px;font:14px "IBM Plex Sans",sans-serif}
+  input[type=text]{min-width:340px}
+  button{background:var(--accent);color:#fff;border:0;border-radius:6px;
+         padding:9px 18px;font-weight:600;cursor:pointer;font-size:14px}
+  button:disabled{opacity:.5;cursor:default}
+  button.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{background:var(--bg);border:1px solid var(--line);border-radius:999px;
+        padding:4px 11px;font-size:12px;cursor:pointer;color:var(--ink2)}
+  .chip:hover{border-color:var(--accent);color:var(--accent)}
+  .flow{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .badge{font:700 22px "IBM Plex Mono",monospace;width:44px;height:44px;flex:none;
+         display:flex;align-items:center;justify-content:center;border-radius:9px}
+  .f-A,.f-B{background:var(--good-soft);color:var(--good)}
+  .f-C{background:var(--accent-soft);color:var(--accent)}
+  .f-D,.f-E{background:var(--warn-soft);color:var(--warn)}
+  .f-F{background:var(--bad-soft);color:var(--bad)}
+  .tags{display:flex;gap:8px;flex-wrap:wrap;font:12px "IBM Plex Mono",monospace}
+  .tag{background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:2px 8px}
+  h2{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.07em;
+     color:var(--ink3);font-weight:600}
+  .hit{border-left:2px solid var(--line);padding:6px 0 6px 12px;margin-bottom:10px}
+  .hit .uri{font:600 12px "IBM Plex Mono",monospace;color:var(--accent);word-break:break-all}
+  .hit .sec{font-size:11px;color:var(--ink3)}
+  .hit .txt{font-size:12.5px;color:var(--ink2);margin-top:3px}
+  pre{background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:12px;
+      overflow:auto;font:12px/1.6 "IBM Plex Mono",monospace;color:var(--ink2);
+      max-height:340px;white-space:pre-wrap;word-break:break-word;margin:0}
+  table{width:100%;border-collapse:collapse;font:12.5px "IBM Plex Mono",monospace}
+  th,td{padding:5px 10px;text-align:left;border-bottom:1px solid var(--line)}
+  th{color:var(--ink3);font-size:11px;text-transform:uppercase}
+  .note{font-size:13px;color:var(--ink2);margin:0}
+  .empty{color:var(--ink3);font-size:12.5px;font-style:italic}
+  .ok{color:var(--good);font-weight:600}
+  .no{color:var(--bad);font-weight:600}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:760px){.grid{grid-template-columns:1fr}input[type=text]{min-width:100%}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div>
+    <h1>microfinance-rag test harness</h1>
+    <p class="sub">Shows the routing decision, not just the answer. Four of the six flows never reach a model.</p>
+  </div>
+
+  <div class="card">
+    <form id="f">
+      <div class="row">
+        <label>Question
+          <input type="text" id="q" value="the customer was charged twice for one transaction">
+        </label>
+        <label>Defect class (from recon)
+          <select id="code"><option value="">none — force a search</option></select>
+        </label>
+        <label>RRN
+          <input type="text" id="rrn" style="min-width:150px" placeholder="optional">
+        </label>
+      </div>
+      <div class="row">
+        <button type="submit" id="go">Route it</button>
+        <button type="button" class="ghost" id="gen">Route and generate</button>
+        <span class="sub" id="status"></span>
+      </div>
+      <div class="chips" id="chips"></div>
+    </form>
+  </div>
+
+  <div id="out"></div>
+</div>
+
+<script>
+const EXAMPLES = [
+  ["A · numeric",   "how many disputes are still open", ""],
+  ["A · numeric",   "how many transactions failed by response code", ""],
+  ["B · lookup",    "what is the balance on acc_mer_0002", ""],
+  ["C · exact",     "the customer was charged twice for one transaction", "DUPLICATE_POSTING"],
+  ["D · derived",   "the same transaction was posted three times", ""],
+  ["D · derived",   "the amounts do not match between switch and ledger", ""],
+  ["F · none",      "who won the cricket match yesterday", ""],
+  ["F · none",      "what is our policy on annual leave", ""],
+];
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+EXAMPLES.forEach(([label, q, code]) => {
+  const b = document.createElement("span");
+  b.className = "chip"; b.textContent = label;
+  b.title = q;
+  b.onclick = () => { $("#q").value = q; $("#code").value = code; };
+  $("#chips").appendChild(b);
+});
+
+fetch("/codes").then(r => r.json()).then(d => {
+  const sel = $("#code");
+  const add = (list, tag) => list.forEach(c => {
+    const o = document.createElement("option");
+    o.value = c; o.textContent = c + tag; sel.appendChild(o);
+  });
+  add(d.documented, "");
+  add(d.held_out, "  (held out — no procedure exists)");
+}).catch(() => {});
+
+function hits(title, list) {
+  if (!list || !list.length) return `<div class="card"><h2>${title}</h2><p class="empty">nothing</p></div>`;
+  return `<div class="card"><h2>${title} · ${list.length}</h2>` + list.map(h => `
+    <div class="hit">
+      <div class="uri">${esc(h.uri)}</div>
+      <div class="sec">${esc(h.section)} &middot; coverage ${h.coverage}</div>
+      <div class="txt">${esc(h.text)}</div>
+    </div>`).join("") + `</div>`;
+}
+
+function render(d) {
+  let html = `
+    <div class="card">
+      <div class="flow">
+        <div class="badge f-${d.flow}">${d.flow}</div>
+        <div>
+          <div style="font-weight:600">${esc(d.why)}</div>
+          <div class="tags" style="margin-top:6px">
+            <span class="tag">intent: ${esc(d.intent)}</span>
+            <span class="tag">tier: ${esc(d.tier)}</span>
+            <span class="tag">${d.reached_model ? "reached the model" : "never reached a model"}</span>
+          </div>
+        </div>
+      </div>
+      ${d.note ? `<p class="note" style="margin-top:12px">${esc(d.note)}</p>` : ""}
+    </div>`;
+
+  if (d.sql) {
+    html += `<div class="card"><h2>SQL &middot; ${esc(d.sql.name || "no query matched")}</h2>`;
+    if (d.sql.error) html += `<p class="empty">${esc(d.sql.error)}</p>`;
+    else {
+      html += `<pre>${esc(d.sql.statement)}</pre>`;
+      html += `<table><thead><tr>${d.sql.columns.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>`;
+      html += d.sql.rows.map(r => `<tr>${r.map(v => `<td>${esc(v)}</td>`).join("")}</tr>`).join("");
+      html += `</tbody></table><p class="sub" style="margin-top:8px">${d.sql.ms} ms</p>`;
+    }
+    html += `</div>`;
+  }
+
+  if (d.lookup) {
+    const l = d.lookup;
+    html += `<div class="card"><h2>Lookup &middot; ${esc(l.kind)}</h2>`;
+    if (l.error) html += `<p class="empty">${esc(l.error)}</p>`;
+    else {
+      const v = l.unit === "minor" ? "PKR " + (l.value / 100).toLocaleString(undefined,
+                  {minimumFractionDigits:2}) : l.value;
+      html += `<div style="font:600 24px 'IBM Plex Mono',monospace">${esc(v)}</div>
+               <p class="sub">as at ${esc(l.as_at)} &middot; from ${esc(l.source)}</p>
+               <table><tbody>${Object.entries(l.detail || {}).map(([k, x]) =>
+                 `<tr><td>${esc(k)}</td><td>${esc(x)}</td></tr>`).join("")}</tbody></table>`;
+    }
+    html += `</div>`;
+  }
+
+  if (d.procedure || d.precedent || d.reference) {
+    html += `<div class="grid">${hits("Procedure", d.procedure)}${hits("Precedent", d.precedent)}</div>`;
+    html += hits("Reference", d.reference);
+  }
+
+  if (d.answer) {
+    const a = d.answer;
+    html += `<div class="card"><h2>Answer &middot; ${esc(a.backend)} ${esc(a.model)} &middot;
+      <span class="${a.verified ? "ok" : "no"}">${a.verified ? "VERIFIED" : "WITHHELD"}</span></h2>`;
+    html += `<pre>${esc(a.verified ? a.text : a.withheld)}</pre>`;
+    if (a.problems && a.problems.length)
+      html += `<h2 style="margin-top:14px">Why it was withheld</h2><ul class="note">` +
+              a.problems.map(p => `<li>${esc(p)}</li>`).join("") + `</ul>`;
+    if (a.citations && a.citations.length)
+      html += `<h2 style="margin-top:14px">Citations &middot; ${a.citations.length}</h2>` +
+              a.citations.map(c => `<div class="hit"><div class="sec">block ${c.block_index}</div>
+                <div class="txt">${esc(c.cited_text)}</div></div>`).join("");
+    html += `</div>`;
+  }
+
+  if (d.generation_error)
+    html += `<div class="card"><h2>Generation failed</h2><p class="empty">${esc(d.generation_error)}</p></div>`;
+
+  if (d.prompt)
+    html += `<div class="card"><h2>Prompt that would be sent</h2><pre>${esc(d.prompt)}</pre></div>`;
+
+  $("#out").innerHTML = html;
+}
+
+async function submit(generate) {
+  $("#go").disabled = $("#gen").disabled = true;
+  $("#status").textContent = generate ? "routing and generating..." : "routing...";
+  try {
+    const r = await fetch("/ask", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        question: $("#q").value,
+        anomaly_code: $("#code").value || null,
+        rrn: $("#rrn").value || null,
+        generate,
+      }),
+    });
+    render(await r.json());
+    $("#status").textContent = "";
+  } catch (e) {
+    $("#status").textContent = "failed: " + e;
+  }
+  $("#go").disabled = $("#gen").disabled = false;
+}
+
+$("#f").onsubmit = e => { e.preventDefault(); submit(false); };
+$("#gen").onclick = () => submit(true);
+submit(false);
+</script>
+</body>
+</html>

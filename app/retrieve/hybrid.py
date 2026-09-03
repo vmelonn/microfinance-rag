@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import array
 import sqlite3
+import threading
 from dataclasses import dataclass
 
 from app.retrieve.store import Hit, Store, content_terms, covered
@@ -42,8 +43,14 @@ class Scored:
 class Hybrid:
     def __init__(self, index_path: str, encoder=None):
         self.store = Store(index_path)
-        self.conn = sqlite3.connect("file:%s?mode=ro" % index_path, uri=True)
+        # check_same_thread=False plus a lock: a served request runs on whichever
+        # worker thread picks it up, while the connection was opened on another.
+        # The connection is read-only, so the lock guards SQLite's per-connection
+        # cursor state rather than the data.
+        self.conn = sqlite3.connect("file:%s?mode=ro" % index_path, uri=True,
+                                    check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        self.lock = threading.Lock()
         self.encoder = encoder          # anything with .encode([str]) -> vectors
         self._matrix_cache: dict = {}
 
@@ -87,7 +94,8 @@ class Hybrid:
                  FROM chunks k JOIN documents d ON d.id = k.document_id
                  WHERE %s""" % " AND ".join(where)
 
-        rows = self.conn.execute(sql, params).fetchall()
+        with self.lock:
+            rows = self.conn.execute(sql, params).fetchall()
         if not rows:
             empty = (np.zeros((0, 1), dtype="float32"), [])
             self._matrix_cache[key] = empty

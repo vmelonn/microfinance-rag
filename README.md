@@ -73,6 +73,23 @@ python -m app.answer.ask --index index.db --data sim.db \
 `--dry-run` on `ask` prints the exact model request and sends nothing, which is
 how the prompt and its guardrails get reviewed with no key and no spend.
 
+## The test harness
+
+```bash
+RAG_INDEX=index.db RAG_DATA=sim.db RAG_LEDGER=../microfinance-microservices/practice.db python -m uvicorn app.api.routes:app --port 8086
+```
+
+Then open <http://127.0.0.1:8086>.
+
+It shows the **routing decision**, not just the answer: which of the six flows
+was taken and why, each retrieval pool separately, the SQL statement when there
+is one, and the exact prompt that would be sent. Since four of six flows never
+reach a model, a UI showing only a final answer would hide the part worth
+checking.
+
+Preset buttons cover every flow. "Route it" stops before generation; "Route and
+generate" calls the model, which needs one pulled in Ollama.
+
 ## Layout
 
 ```
