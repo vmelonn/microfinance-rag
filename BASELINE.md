@@ -4,6 +4,43 @@ Keyword was recorded first, before any vector search existed, so later changes
 had something to beat. Vector and hybrid were then measured on the identical
 question set.
 
+## The bug the tests found
+
+Writing regression tests turned up the worst defect so far, and the eval had
+been reporting 100% on it the whole time.
+
+`MIN_CHARS` in the chunker was 120, intended to drop a heading with no body. A
+fee circular's `## 2. The cap` section is one sentence, roughly 70 characters,
+and it is **the only place the actual figure appears**. Every circular lost it.
+
+Measured after the fix: **zero chunks in the entire corpus contained a fee cap
+before; twenty do now.** SOP chunks went from 37 to 84, so content was being
+discarded across the corpus, not just from circulars.
+
+Supersession still read 100% throughout, because the measure asked *which
+document ranked* and never *whether the chunk held the answer*. The filter was
+working perfectly and returning the right document with the answer removed from
+it.
+
+Two lessons, and the second is the general one:
+
+- **A length floor on chunks is a content filter.** Short sections are often the
+  ones carrying the fact. `MIN_CHARS` is now 25, which drops an empty heading and
+  nothing else.
+- **Document identity is not answer presence.** The supersession measure now
+  asserts the returned chunk contains "maximum fee", and a test asserts it
+  separately. Any measure that checks which document came back can pass while the
+  answer is missing from it.
+
+A second bug surfaced the same way. Coverage was computed by substring, so
+"match" counted as present in "Matched RRN where the two amounts differ" and the
+junk question "who won the cricket match yesterday" scored 0.25 instead of 0.
+Coverage is what the refusal floor reads, so a substring hit is a junk question
+quietly promoted to answerable. It now matches whole words.
+
+Neither bug was found by the eval. Both were found by writing tests that assert
+behaviour rather than measure quality.
+
 ## Precedent, and why it was bad
 
 Precedent retrieval was visibly poor and unmeasured: a duplicate-posting

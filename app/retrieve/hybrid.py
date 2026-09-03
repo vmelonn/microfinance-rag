@@ -20,7 +20,7 @@ import array
 import sqlite3
 from dataclasses import dataclass
 
-from app.retrieve.store import Hit, Store, content_terms
+from app.retrieve.store import Hit, Store, content_terms, covered
 
 RRF_K = 60          # the usual constant; damps the top rank's dominance
 

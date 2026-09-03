@@ -19,7 +19,20 @@ import re
 from dataclasses import dataclass, field
 
 MAX_CHARS = 2400          # a long section is split, but only at paragraph joins
-MIN_CHARS = 120           # shorter than this is a heading with no body
+
+# Only a heading with essentially no body is dropped.
+#
+# This was 120, which silently deleted the most important section in the
+# corpus. A fee circular's "## 2. The cap" section is one sentence, about 70
+# characters, and it is the only place the actual figure appears. Every
+# circular lost it, so no chunk anywhere contained a cap, and a question about
+# the current cap retrieved the right *document* with the answer removed from
+# it. The supersession measure still read 100% because it checked which
+# document ranked, not whether the chunk held the answer.
+#
+# The lesson is worth more than the number: a length floor on chunks is a
+# content filter, and short sections are often the ones carrying the fact.
+MIN_CHARS = 25
 
 
 @dataclass

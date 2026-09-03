@@ -56,6 +56,22 @@ def content_terms(query: str) -> set[str]:
             if len(t) > 1 and t.lower() not in STOP}
 
 
+def covered(terms: set[str], body: str) -> float:
+    """
+    Share of query terms present as whole words.
+
+    Substring matching inflated this and a test caught it: "match" was counted
+    as present in "Matched RRN where the two amounts differ", so the junk
+    question "who won the cricket match yesterday" scored 0.25 instead of 0.
+    Since coverage is what the refusal floor reads, a substring hit is a junk
+    question quietly promoted to answerable.
+    """
+    if not terms:
+        return 0.0
+    words = set(_TOKEN.findall(body.lower()))
+    return sum(1 for t in terms if t in words) / len(terms)
+
+
 def to_match(query: str) -> str:
     """
     FTS5 MATCH is a query language, not a string. An apostrophe or a stray
@@ -127,8 +143,7 @@ class Store:
 
         hits = []
         for r in self.conn.execute(sql, params):
-            body = r["text"].lower()
-            cov = (sum(1 for t in terms if t in body) / len(terms)) if terms else 0.0
+            cov = covered(terms, r["text"])
             hits.append(Hit(chunk_id=r["id"], document_id=r["document_id"],
                             doc_type=r["doc_type"], title=r["title"],
                             source_uri=r["source_uri"],
