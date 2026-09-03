@@ -45,6 +45,16 @@ class Query:
     params: tuple[str, ...] = ()     # named placeholders this query needs
     triggers: tuple[str, ...] = ()   # words that suggest this query
 
+    # Which database answers it. The registry spans two: the simulator stream
+    # (transactions, disputes, narratives) and the platform's own tables
+    # (users, accounts, agents, branches, cards).
+    #
+    # Leaving this out was a real gap rather than a small one. Every question
+    # about an entity was unanswerable, because no query could reach the
+    # database the entities live in, and "how many users do we have" is about
+    # as ordinary as an operational question gets.
+    source: str = "data"             # data | ledger
+
 
 REGISTRY: list[Query] = [
 
@@ -126,12 +136,88 @@ REGISTRY: list[Query] = [
                    AS raised""",
         triggers=("rate", "share", "proportion", "percentage", "resolved"),
     ),
+    # ------------------------------------------------------------- ledger
+    # The platform's own tables rather than the simulator stream.
+
+    Query(
+        name="count_users",
+        question="How many customers are on the platform?",
+        sql="SELECT count(*) AS users FROM users",
+        source="ledger",
+        triggers=("users", "customers", "how many users", "customer count"),
+    ),
+
+    Query(
+        name="count_accounts",
+        question="How many accounts exist, by type?",
+        sql="""SELECT type, count(*) AS n FROM accounts
+               GROUP BY type ORDER BY n DESC""",
+        source="ledger",
+        triggers=("accounts", "wallets", "account type"),
+    ),
+
+    Query(
+        name="count_agents",
+        question="How many agents are there, and how many are active?",
+        sql="""SELECT status, count(*) AS n FROM agents
+               GROUP BY status ORDER BY n DESC""",
+        source="ledger",
+        triggers=("agents", "active agents"),
+    ),
+
+    Query(
+        name="count_cards",
+        question="How many cards are issued, by status?",
+        sql="""SELECT status, count(*) AS n FROM cards
+               GROUP BY status ORDER BY n DESC""",
+        source="ledger",
+        triggers=("cards", "blocked cards", "issued"),
+    ),
+
+    Query(
+        name="users_by_branch",
+        question="How are customers distributed across branches?",
+        sql="""SELECT b.name AS branch, count(u.user_id) AS n
+               FROM branches b LEFT JOIN users u ON u.branch_id = b.branch_id
+               GROUP BY b.name ORDER BY n DESC""",
+        source="ledger",
+        triggers=("branch", "branches", "distributed", "region"),
+    ),
+
+    Query(
+        name="users_by_tier",
+        question="How many customers are in each KYC tier?",
+        sql="""SELECT k.name AS tier, count(u.user_id) AS n
+               FROM kyc_tiers k LEFT JOIN users u ON u.tier_id = k.tier_id
+               GROUP BY k.name ORDER BY n DESC""",
+        source="ledger",
+        triggers=("tier", "kyc", "verification level"),
+    ),
+
+    Query(
+        name="ledger_totals",
+        question="What is the total value posted to the ledger?",
+        sql="""SELECT entry_type, count(*) AS entries,
+                      sum(amount_cents) / 100 AS total_pkr
+               FROM ledger_entries GROUP BY entry_type""",
+        source="ledger",
+        triggers=("posted", "ledger total", "total value", "postings"),
+    ),
 ]
 
 BY_NAME = {q.name: q for q in REGISTRY}
 
 _SELECT_ONLY = re.compile(r"^\s*(SELECT|WITH)\b", re.I)
 _PLACEHOLDER = re.compile(r":([a-z_]+)")
+_WORD = re.compile(r"[a-z0-9]+")
+
+# Filler that every question shares, so it proves nothing about topic.
+_STOP = frozenset("""
+a an the this that of in on at to from by for with is are was were be
+do does did have has had how many much what which who when where why
+we our us i you they it there any all some each per and or but not no
+give me show tell get list count total number
+""".split())
 
 
 def _validate_registry() -> None:
@@ -190,16 +276,167 @@ def pick(question: str) -> Query | None:
     with no model at all, and means the model's choice can be diffed against a
     baseline rather than trusted.
     """
-    q_low = question.lower()
+    # Whole words, not substrings. Matching on substrings made "how many
+    # swallows migrate each year" select the resolution-rate query, because
+    # "migrate" contains "rate". A closed registry only protects you if the
+    # selector cannot be fooled: a wrong query chosen confidently is worse than
+    # the refusal it replaced, and it is the exact failure this design exists to
+    # avoid.
+    q_words = set(_WORD.findall(question.lower()))
+
     best, best_score = None, 0
     for q in REGISTRY:
-        score = sum(1 for t in q.triggers if t in q_low)
+        score = 0
+        for t in q.triggers:
+            parts = _WORD.findall(t.lower())
+            if parts and all(p in q_words for p in parts):
+                score += 1
         if score > best_score:
             best, best_score = q, score
     return best
 
 
-def run(db_path: str, query: Query, params: dict | None = None) -> Result:
+# --------------------------------------------------------------------------
+# Semantic selection.
+#
+# Trigger words do not scale. Every unlisted phrasing of a question that the
+# registry can perfectly well answer gets refused, and the fix is always
+# somebody remembering to add another keyword. That is a maintenance treadmill
+# and it is always behind.
+#
+# The registry is a closed set of fifteen short questions, and an embedding
+# model is already loaded for retrieval. So embed each query's own question
+# once, embed the user's, and pick by similarity. The safety property is
+# untouched: the set of runnable SQL does not grow, only the ability to
+# recognise a paraphrase of something already in it.
+#
+# The floor still matters. Cosine similarity always returns a best match, so
+# without a floor "how many unicorns do we have" selects whichever query is
+# least unlike it and answers confidently. The floor is what keeps a refusal
+# possible, and it is set from measurement rather than taste.
+# --------------------------------------------------------------------------
+
+SIMILARITY_FLOOR = 0.55
+
+_vec_cache: dict = {}
+
+
+def pick_semantic(question: str, encoder, floor: float = SIMILARITY_FLOOR):
+    """Nearest registered question by meaning, or None below the floor."""
+    import numpy as np
+
+    key = id(encoder)
+    if key not in _vec_cache:
+        mat = encoder.encode([q.question for q in REGISTRY],
+                             normalize_embeddings=True)
+        _vec_cache[key] = np.asarray(mat, dtype="float32")
+    mat = _vec_cache[key]
+
+    qv = np.asarray(encoder.encode([question], normalize_embeddings=True)[0],
+                    dtype="float32")
+    sims = mat @ qv
+    i = int(sims.argmax())
+    return (REGISTRY[i], float(sims[i])) if sims[i] >= floor else (None, float(sims[i]))
+
+
+SELECTOR_PROMPT = """\
+You match an operator's question to one query from a fixed list. You never write
+SQL and you never invent a name.
+
+Reply with exactly one line: either the name of the single best query, or NONE.
+No explanation, no punctuation, nothing else.
+
+Answer NONE when the question is about something the list does not cover. NONE is
+the right answer often; a wrong query returns a real number about the wrong thing,
+which is worse than returning nothing.
+
+QUERIES:
+%s
+
+QUESTION: %s
+"""
+
+
+def pick_llm(question: str, *, backend: str = "ollama",
+             model: str = "qwen2.5:7b-instruct"):
+    """
+    A model chooses from the closed list. It cannot write SQL, only name a query.
+
+    That containment is what makes this acceptable at all. The model is picking
+    from fifteen reviewed statements, so the worst outcome is a real number about
+    the wrong thing, shown alongside the statement that produced it. Compare that
+    to text-to-SQL, where the worst outcome is unbounded.
+
+    Its answer is still validated against the registry, because a model asked for
+    one of fifteen names will occasionally return a sixteenth.
+    """
+    from app.answer.llm import call_ollama
+
+    listing = "\n".join("  %s: %s" % (q.name, q.question) for q in REGISTRY)
+    kwargs = {
+        "model": model,
+        "max_tokens": 24,
+        "system": "You are a strict classifier. One line, one name, or NONE.",
+        "messages": [{"role": "user", "content": [
+            {"type": "text", "text": SELECTOR_PROMPT % (listing, question)}]}],
+    }
+
+    reply = call_ollama(kwargs, model=model, cite=False)
+    raw = reply.content[0].text.strip().splitlines()[0].strip() if reply.content else ""
+    name = raw.split()[0].strip().strip('".:,').lower() if raw else ""
+
+    # Validated, not trusted. A name that is not in the registry is a refusal,
+    # not an error to paper over.
+    return BY_NAME.get(name)
+
+
+def _vocab(q: Query) -> set[str]:
+    """Every content word this query is about."""
+    words = set(_WORD.findall(q.question.lower()))
+    for t in q.triggers:
+        words |= set(_WORD.findall(t.lower()))
+    return words - _STOP
+
+
+def pick_best(question: str, encoder=None):
+    """
+    Semantic for recall, lexical for precision. The same lesson as retrieval,
+    arrived at the same way.
+
+    Measured on ten questions, each selector scored 7 of 10 and failed on
+    different ones. Keyword triggers cannot recognise a paraphrase: "what is our
+    total customer base" and "how many people are signed up" both got nothing,
+    though the registry answers them. Semantics cannot refuse nonsense: "how many
+    unicorns do we have" scored 0.67 against "How many accounts exist", which is
+    a perfectly reasonable similarity, because cosine always returns a nearest
+    neighbour and never an absence.
+
+    So the embedding proposes and the vocabulary disposes. A candidate must also
+    share at least one content word with what that query is about. A paraphrase
+    does, because it is about the same thing. Nonsense does not, because
+    "unicorns" and "swallows" appear nowhere in the registry.
+
+    Neither half is sufficient and neither is redundant, which is exactly the
+    hybrid-retrieval result over again.
+    """
+    if encoder is None:
+        return pick(question)
+
+    cand, score = pick_semantic(question, encoder)
+    if cand is None:
+        return None
+
+    asked = set(_WORD.findall(question.lower())) - _STOP
+    if asked & _vocab(cand):
+        return cand
+
+    # Semantically close, lexically unrelated. Fall back to the keyword
+    # selector, which refuses rather than guessing.
+    return pick(question)
+
+
+def run(db_path: str, query: Query, params: dict | None = None,
+        ledger_path: str | None = None) -> Result:
     params = params or {}
 
     missing = set(query.params) - set(params)
@@ -209,7 +446,12 @@ def run(db_path: str, query: Query, params: dict | None = None) -> Result:
 
     # Read-only at the driver. A write is refused by SQLite itself rather than
     # by a convention someone can refactor away.
-    conn = sqlite3.connect("file:%s?mode=ro" % db_path, uri=True)
+    path = ledger_path if query.source == "ledger" else db_path
+    if path is None:
+        return Result(query=query, sql=query.sql,
+                      error="this query reads the platform database, which was "
+                            "not supplied")
+    conn = sqlite3.connect("file:%s?mode=ro" % path, uri=True)
     conn.execute("PRAGMA query_only = ON")
 
     # A wall-clock ceiling, so a pathological scan cannot hold the request open.
@@ -234,11 +476,30 @@ def run(db_path: str, query: Query, params: dict | None = None) -> Result:
                   rows=rows[:MAX_ROWS], truncated=truncated, elapsed_ms=elapsed)
 
 
-def answer(db_path: str, question: str, params: dict | None = None) -> Result:
+def catalogue() -> str:
+    """Every question the registry can answer, grouped by database."""
+    out = []
+    for src, label in (("data", "the transaction stream"),
+                       ("ledger", "the platform database")):
+        qs = [q for q in REGISTRY if q.source == src]
+        if not qs:
+            continue
+        out.append("From %s:" % label)
+        out.extend("  - %s" % q.question for q in qs)
+    return "\n".join(out)
+
+
+def answer(db_path: str, question: str, params: dict | None = None,
+           ledger_path: str | None = None) -> Result:
     q = pick(question)
     if q is None:
+        # Refusing is correct. Refusing without saying what *is* available is
+        # merely unhelpful, and it makes a closed registry feel broken rather
+        # than deliberate. Listing the catalogue costs nothing and turns a dead
+        # end into a menu.
         return Result(query=None,
-                      error=("no registered query covers this. The registry is "
-                             "deliberately closed: an unanticipated question gets "
-                             "nothing rather than an improvised number."))
-    return run(db_path, q, params)
+                      error=("No registered query covers this. The registry is "
+                             "closed on purpose: an unanticipated question gets "
+                             "nothing rather than an improvised number.\n\n"
+                             + catalogue()))
+    return run(db_path, q, params, ledger_path)

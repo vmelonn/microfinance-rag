@@ -81,7 +81,15 @@ def _flatten(kwargs: dict) -> tuple[str, str, list[str]]:
     return system, "\n\n".join(parts), blocks
 
 
-def call_ollama(kwargs: dict, *, model: str, timeout: int = 300) -> Reply:
+def call_ollama(kwargs: dict, *, model: str, timeout: int = 300,
+                cite: bool = True) -> Reply:
+    # cite=False for callers that are not answering a question. The
+    # citation rule was injected unconditionally, which corrupted the SQL
+    # selector: asked for one query name it returned
+    # `count_users [10] "How many customers are on the platform?"`, the
+    # right answer wearing the answer path's output format. It looked like
+    # the model being bad at classification and was this function being
+    # wrong about what it was being used for.
     system, user, blocks = _flatten(kwargs)
     payload = {
         "model": model,

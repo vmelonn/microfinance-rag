@@ -78,10 +78,27 @@ def main() -> int:
             print("pass --data to run the query")
             return 0
         params = {"rrn": a.rrn} if a.rrn else {}
-        print(sql_tool.answer(a.data, a.question, params).render())
+        print(sql_tool.answer(a.data, a.question, params,
+                              ledger_path=a.ledger).render())
         return 0
 
-    if routed.intent == "lookup" or routed.tier == "none":
+    if routed.intent == "lookup":
+        # The value comes from the system of record. A model may word it; it may
+        # not produce it. The reading carries its own timestamp, because a
+        # balance is true at a time rather than in general.
+        print("NOT SENT TO THE MODEL")
+        print(routed.note)
+        print()
+        if not a.ledger:
+            print("pass --ledger to resolve the value")
+            return 0
+        backend = (lookup_mod.LedgerService(a.ledger)
+                   if a.ledger.startswith("http")
+                   else lookup_mod.LocalLedger(a.ledger))
+        print(lookup_mod.answer(backend, a.question).render())
+        return 0
+
+    if routed.tier == "none":
         print("NOT SENT TO THE MODEL")
         print(routed.note)
         return 0

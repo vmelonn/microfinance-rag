@@ -117,7 +117,9 @@ def ask(req: Ask):
     }
 
     if flow == "A":
-        r = sql_tool.answer(DATA, req.question, {"rrn": req.rrn} if req.rrn else {})
+        r = sql_tool.answer(DATA, req.question,
+                            {"rrn": req.rrn} if req.rrn else {},
+                            ledger_path=LEDGER if not LEDGER.startswith("http") else None)
         out["sql"] = {"name": r.query.name if r.query else None,
                       "statement": r.sql, "columns": r.columns,
                       "rows": [list(x) for x in r.rows[:25]],

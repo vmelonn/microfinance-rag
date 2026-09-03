@@ -332,3 +332,42 @@ def test_lookup_by_msisdn_and_missing_account(tmp_path):
     lg = LocalLedger(db)
     assert lg.balance("03009998888").value == 4200
     assert lg.balance("03000000000").error
+
+
+# ------------------------------------------------------- query selection
+
+def test_selection_matches_whole_words_not_substrings():
+    """
+    Regression, and the third time substring matching caused a real bug.
+    "how many swallows migrate each year" selected the resolution-rate query
+    because "migrate" contains "rate". A closed registry only protects you if
+    the selector cannot be fooled: a wrong query answered confidently is worse
+    than the refusal it replaced.
+    """
+    assert sql_tool.pick("how many swallows migrate each year") is None
+    assert sql_tool.pick("what share of disputes have been resolved") is not None
+
+
+def test_registry_spans_both_databases():
+    """
+    Every entity question used to be unanswerable, because no query could reach
+    the database users and accounts live in.
+    """
+    sources = {q.source for q in sql_tool.REGISTRY}
+    assert sources == {"data", "ledger"}
+    assert sql_tool.pick("how many users do we have").source == "ledger"
+
+
+def test_ledger_query_without_a_ledger_path_is_refused(data_db):
+    r = sql_tool.run(data_db, sql_tool.BY_NAME["count_users"])
+    assert "platform database" in r.error
+
+
+def test_refusal_lists_what_is_available(data_db):
+    """
+    Refusing is correct; refusing without saying what exists makes a closed
+    registry feel broken rather than deliberate.
+    """
+    r = sql_tool.answer(data_db, "how many unicorns do we have")
+    assert r.query is None
+    assert "How many disputes are still open?" in r.error
