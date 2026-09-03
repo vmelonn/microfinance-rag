@@ -53,12 +53,21 @@ TIER_GUIDANCE = {
     "exact": (
         "TIER: EXACT. The defect class was identified deterministically and the "
         "procedure below is the one written for it. Follow it. Cite it."),
+    # The attribution instruction has to name the citation format, not describe
+    # attribution in its own words. Saying "say which procedure each step was
+    # adapted from" got exactly that: prose naming the procedures, and zero
+    # citations in the required form, so every derived answer failed
+    # verification while the identical question with a known defect class
+    # passed. Two instructions about attribution in different shapes, and the
+    # model followed the nearer one.
     "derived": (
         "TIER: DERIVED. No procedure was written for this defect. The documents "
         "below are the closest analogous material. Reason from them to a "
-        "proposal, say explicitly which procedure each step was adapted from, "
-        "and state that the result is unverified and needs sign-off. Do not "
-        "present an adapted step as if it were written for this case."),
+        "proposal. Cite the block you adapted each step from, using the [X] "
+        "\"quoted words\" form described above and nothing else; naming a "
+        "procedure in prose is not a citation. End with one line stating that "
+        "the answer is derived, unverified, and needs sign-off. Do not present "
+        "an adapted step as if it were written for this case."),
     "none": (
         "TIER: NONE. Nothing retrieved is close enough. Say that no procedure "
         "covers this and nothing analogous was found. Do not answer from "

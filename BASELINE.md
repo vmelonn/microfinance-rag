@@ -4,6 +4,36 @@ Keyword was recorded first, before any vector search existed, so later changes
 had something to beat. Vector and hybrid were then measured on the identical
 question set.
 
+## How often the local model actually passes verification
+
+Measured across three tiers, one generation each, strict citation checking:
+
+| tier | pass | fail |
+|---|---|---|
+| exact, defect class known | 1 | 4 |
+| derived, class withheld | 1 | 4 |
+| derived, genuinely novel defect | 2 | 2 |
+
+**A local 7B produces verifiable citations roughly a third of the time.** Why it
+failed, in order: no citation at all (5), the same span cited twice (3), a block
+letter that was never supplied (2), a span appearing in no block (1).
+
+Two readings, and both are true.
+
+The verification is working. Every one of those is a real defect in the draft,
+and the answer was withheld rather than shown, which is the design behaving as
+intended under a weak model. That was the whole argument for local generation:
+guardrails that are verified rather than trusted fail loudly.
+
+And the pass rate is too low to ship. An operator who sees two thirds of answers
+withheld will stop asking. Improving it means a larger local model, a hosted one
+where citations come from the API rather than from instruction-following, or
+relaxing a check, and only the first two are honest.
+
+One check may be too strict on reflection: rejecting the same span cited twice.
+Repeating a reference is not dishonest, and it caused three of the eleven
+failures. Worth revisiting against more data rather than tuned away now.
+
 ## First generation, and what it taught about verifying citations
 
 The local 7B produced its first answer, and getting it verified took three

@@ -29,6 +29,7 @@ from fastapi.responses import FileResponse  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
 from app.answer import lookup as lookup_mod  # noqa: E402
+from app.answer import preflight as pre_mod  # noqa: E402
 from app.answer import prompt as prompt_mod  # noqa: E402
 from app.answer import sql_tool  # noqa: E402
 from app.answer.citations import verify  # noqa: E402
@@ -89,6 +90,40 @@ def _flow(routed) -> tuple[str, str]:
     return "E", "novel defect, only precedent and reference cleared the floor"
 
 
+def _plain(rows, columns) -> str:
+    """
+    Word a query result without a model.
+
+    GUARDRAILS says a model may word an exact value but never produce one. The
+    safest way to honour that is not to involve one: a count is a format string,
+    and a model asked to phrase it is a chance for the number to change on the
+    way out for no benefit.
+    """
+    if not rows:
+        return "The query returned no rows."
+    if len(rows) == 1 and len(rows[0]) == 1:
+        return "%s: %s" % (columns[0].replace("_", " "), "{:,}".format(rows[0][0])
+                           if isinstance(rows[0][0], int) else rows[0][0])
+    lines = []
+    for r in rows[:8]:
+        lines.append("  " + " · ".join(
+            "%s %s" % (c, "{:,}".format(v) if isinstance(v, int) else v)
+            for c, v in zip(columns, r)))
+    more = "" if len(rows) <= 8 else "\n... and %d more rows" % (len(rows) - 8)
+    return "\n".join(lines) + more
+
+
+def _found(routed) -> dict:
+    """Which pools came back empty. 'Nothing anywhere' is itself an answer."""
+    return {
+        "procedure": len(routed.procedure),
+        "precedent": len(routed.precedent),
+        "reference": len(routed.reference),
+        "nothing_anywhere": not (routed.procedure or routed.precedent
+                                 or routed.reference),
+    }
+
+
 @app.get("/")
 def index_page():
     return FileResponse(str(Path(__file__).parent / "static" / "index.html"))
@@ -119,6 +154,7 @@ def ask(req: Ask):
         "precedent": _hits(routed.precedent),
         "reference": _hits(routed.reference),
         "reached_model": False,
+        "found": _found(routed),
     }
 
     if flow == "A":
@@ -130,6 +166,15 @@ def ask(req: Ask):
                       "statement": r.sql, "columns": r.columns,
                       "rows": [list(x) for x in r.rows[:25]],
                       "error": r.error, "ms": round(r.elapsed_ms, 1)}
+        out["answer"] = {
+            "backend": "sql", "model": r.query.name if r.query else "none",
+            "verified": not r.error,
+            "text": ("" if r.error else
+                     "%s\n\n%s" % (r.query.question,
+                                   _plain(r.rows, r.columns))),
+            "withheld": r.error or None,
+            "citations": [], "problems": [r.error] if r.error else [],
+        }
         return out
 
     if flow == "B":
@@ -139,13 +184,46 @@ def ask(req: Ask):
         out["lookup"] = {"kind": v.kind, "subject": v.subject, "value": v.value,
                          "unit": v.unit, "as_at": v.as_at, "source": v.source,
                          "detail": v.detail, "error": v.error}
+        out["answer"] = {
+            "backend": "system of record", "model": v.source or "none",
+            "verified": not v.error,
+            "text": "" if v.error else v.render(),
+            "withheld": v.error or None,
+            "citations": [], "problems": [v.error] if v.error else [],
+        }
         return out
 
     if flow == "F":
+        f = out["found"]
+        detail = ("Nothing was retrieved from any pool."
+                  if f["nothing_anywhere"] else
+                  "Retrieval returned %d procedure, %d precedent and %d reference "
+                  "chunks, and none cleared the relevance floor."
+                  % (f["procedure"], f["precedent"], f["reference"]))
+        out["answer"] = {
+            "backend": "none", "model": "none", "verified": True,
+            "text": "No answer.\n\n%s\n\n%s" % (detail, routed.note),
+            "withheld": None, "citations": [], "problems": [],
+        }
         return out
 
-    facts = {"RRN": req.rrn} if req.rrn else None
-    kwargs = prompt_mod.build(routed, break_facts=facts)
+    # Run the read-only checks the defect class implies, before generating.
+    # Escalating to a person without first checking what we could have checked
+    # is the least useful kind of escalation.
+    pf = pre_mod.run(req.question, anomaly_code=req.anomaly_code or None,
+                     data_db=DATA,
+                     ledger_db=None if LEDGER.startswith("http") else LEDGER,
+                     rrn=req.rrn)
+    out["checks"] = [{"label": c.label, "ran": c.ran, "summary": c.summary,
+                      "statement": c.statement, "needs": c.needs,
+                      "columns": c.columns, "rows": c.rows[:8]}
+                     for c in pf.checks]
+    out["clarify"] = pf.question_to_ask()
+
+    facts = dict(pf.facts())
+    if req.rrn:
+        facts["RRN"] = req.rrn
+    kwargs = prompt_mod.build(routed, break_facts=facts or None)
     out["prompt"] = prompt_mod.render(kwargs)
 
     if not req.generate:

@@ -76,7 +76,7 @@
 
   <div>
     <h1>microfinance-rag test harness</h1>
-    <p class="sub">Shows the routing decision, not just the answer. Four of the six flows never reach a model.</p>
+    <p class="sub">Shows the routing decision, not just the answer. Four of the six flows never reach a model; for the other two, the second button calls the local qwen2.5:7b through Ollama.</p>
   </div>
 
   <div class="card">
@@ -93,8 +93,8 @@
         </label>
       </div>
       <div class="row">
-        <button type="submit" id="go">Route it</button>
-        <button type="button" class="ghost" id="gen">Route and generate</button>
+        <button type="submit" id="go">Route only (no model)</button>
+        <button type="button" class="ghost" id="gen">Route + call qwen2.5:7b</button>
         <span class="sub" id="status"></span>
       </div>
       <div class="chips" id="chips"></div>
@@ -157,12 +157,54 @@ function render(d) {
           <div class="tags" style="margin-top:6px">
             <span class="tag">intent: ${esc(d.intent)}</span>
             <span class="tag">tier: ${esc(d.tier)}</span>
-            <span class="tag">${d.reached_model ? "reached the model" : "never reached a model"}</span>
+            <span class="tag">${d.reached_model ? "reached the model" : "no model call"}</span>
+            ${d.found ? `<span class="tag">proc ${d.found.procedure} · prec ${d.found.precedent} · ref ${d.found.reference}</span>` : ""}
           </div>
         </div>
       </div>
       ${d.note ? `<p class="note" style="margin-top:12px">${esc(d.note)}</p>` : ""}
     </div>`;
+
+  if (d.clarify)
+    html += `<div class="card" style="border-color:var(--warn)">
+      <h2>Needs one more thing</h2>
+      <p class="note">${esc(d.clarify)}</p></div>`;
+
+  if (d.checks && d.checks.length) {
+    html += `<div class="card"><h2>Read-only checks run before answering</h2>`;
+    html += d.checks.map(c => `
+      <div class="hit" style="border-left-color:var(--${c.ran ? "good" : "warn"})">
+        <div class="uri">${esc(c.label)} ${c.ran ? "" : "&mdash; could not run"}</div>
+        <div class="txt">${esc(c.ran ? c.summary : "needs the " + c.needs)}</div>
+        ${c.statement ? `<pre style="margin-top:6px;max-height:110px">${esc(c.statement.trim())}</pre>` : ""}
+      </div>`).join("");
+    html += `</div>`;
+  }
+
+  if (d.answer) {
+    const a = d.answer;
+    const bad = a.verified === false;
+    html += `<div class="card" style="border-color:var(--${bad ? "bad" : "accent"})">
+      <h2>Answer &middot; via ${esc(a.backend)}
+        <span class="${bad ? "no" : "ok"}">${bad ? "NOT VERIFIED" : "OK"}</span></h2>
+      <pre>${esc(a.text || a.withheld || "(nothing)")}</pre>`;
+    if (a.problems && a.problems.length)
+      html += `<h2 style="margin-top:14px">Why</h2><ul class="note">` +
+              a.problems.map(p => `<li>${esc(p)}</li>`).join("") + `</ul>`;
+    if (a.citations && a.citations.length)
+      html += `<h2 style="margin-top:14px">Citations &middot; ${a.citations.length}</h2>` +
+              a.citations.map(c => `<div class="hit"><div class="sec">block ${c.block_index}${
+                c.corrected_from !== undefined ? " (model said " + c.corrected_from + ")" : ""
+              }</div><div class="txt">${esc(c.cited_text)}</div></div>`).join("");
+    html += `</div>`;
+  }
+
+  if (d.found && d.found.nothing_anywhere)
+    html += `<div class="card" style="border-color:var(--bad)">
+      <h2>Nothing found</h2>
+      <p class="note">No procedure, no precedent and no reference chunk was
+      retrieved. This is not a ranking problem: nothing in the corpus is about
+      this question at all.</p></div>`;
 
   if (d.sql) {
     html += `<div class="card"><h2>SQL &middot; ${esc(d.sql.name || "no query matched")}</h2>`;
@@ -196,26 +238,16 @@ function render(d) {
     html += hits("Reference", d.reference);
   }
 
-  if (d.answer) {
-    const a = d.answer;
-    html += `<div class="card"><h2>Answer &middot; ${esc(a.backend)} ${esc(a.model)} &middot;
-      <span class="${a.verified ? "ok" : "no"}">${a.verified ? "VERIFIED" : "WITHHELD"}</span></h2>`;
-    html += `<pre>${esc(a.verified ? a.text : a.withheld)}</pre>`;
-    if (a.problems && a.problems.length)
-      html += `<h2 style="margin-top:14px">Why it was withheld</h2><ul class="note">` +
-              a.problems.map(p => `<li>${esc(p)}</li>`).join("") + `</ul>`;
-    if (a.citations && a.citations.length)
-      html += `<h2 style="margin-top:14px">Citations &middot; ${a.citations.length}</h2>` +
-              a.citations.map(c => `<div class="hit"><div class="sec">block ${c.block_index}</div>
-                <div class="txt">${esc(c.cited_text)}</div></div>`).join("");
-    html += `</div>`;
-  }
-
   if (d.generation_error)
     html += `<div class="card"><h2>Generation failed</h2><p class="empty">${esc(d.generation_error)}</p></div>`;
 
-  if (d.prompt)
-    html += `<div class="card"><h2>Prompt that would be sent</h2><pre>${esc(d.prompt)}</pre></div>`;
+  if (d.prompt && !d.answer && !d.generation_error)
+    html += `<div class="card"><h2>Prompt that would be sent</h2>
+      <p class="note" style="margin-bottom:10px">No model was called. Use
+      <strong>Route + call qwen2.5:7b</strong> to generate an answer from this.</p>
+      <pre>${esc(d.prompt)}</pre></div>`;
+  else if (d.prompt)
+    html += `<div class="card"><h2>Prompt that was sent</h2><pre>${esc(d.prompt)}</pre></div>`;
 
   $("#out").innerHTML = html;
 }
