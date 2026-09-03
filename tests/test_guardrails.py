@@ -371,3 +371,74 @@ def test_refusal_lists_what_is_available(data_db):
     r = sql_tool.answer(data_db, "how many unicorns do we have")
     assert r.query is None
     assert "How many disputes are still open?" in r.error
+
+
+# ------------------------------------------------------------- citations
+
+def _fake_reply(text, cites):
+    class C:
+        def __init__(s, t, i): s.cited_text, s.start_block_index, s.type = t, i, "x"
+    class B:
+        type = "text"
+        def __init__(s): s.text, s.citations = text, [C(t, i) for t, i in cites]
+    class R:
+        content = [B()]
+    return R()
+
+
+def _kwargs(blocks):
+    return {"messages": [{"role": "user", "content": [
+        {"type": "document", "source": {"type": "content",
+         "content": [{"type": "text", "text": b} for b in blocks]}}]}]}
+
+
+def test_citation_must_narrow_down_the_source():
+    """
+    Regression, and the model found this one, not me. Asked to cite, a 7B
+    emitted thirteen identical citations of the document title, which the
+    chunker prepends to every chunk as its heading trail. Every span was
+    verbatim so every one passed, and together they grounded nothing.
+
+    A citation has to identify a particular source. One present in every block
+    identifies none.
+    """
+    from app.answer.citations import verify
+    blocks = ["TITLE. step one text", "TITLE. step two text", "TITLE. step three"]
+    kw = _kwargs(blocks)
+
+    good = verify(_fake_reply("x", [("step one text", 0)]), kw)
+    assert good.ok
+
+    gamed = verify(_fake_reply("x", [("TITLE.", 0), ("TITLE.", 1)]), kw)
+    assert not gamed.ok
+    assert any("identifies no particular source" in p for p in gamed.problems)
+
+
+def test_same_span_cited_twice_is_rejected():
+    from app.answer.citations import verify
+    kw = _kwargs(["alpha unique one", "beta unique two", "gamma unique three"])
+    v = verify(_fake_reply("x", [("alpha unique one", 0), ("alpha unique one", 0)]), kw)
+    assert not v.ok
+    assert any("more than once" in p for p in v.problems)
+
+
+def test_misnumbered_but_verbatim_citation_is_accepted():
+    """
+    A fabricated quote is a lie; a misnumbered one is a typo. Only the first is
+    a safety property, so the span is looked for in every supplied block and the
+    index is corrected rather than the answer withheld.
+    """
+    from app.answer.citations import verify
+    kw = _kwargs(["alpha unique one", "beta unique two", "gamma unique three"])
+    v = verify(_fake_reply("x", [("gamma unique three", 0)]), kw)
+    assert v.ok
+    assert v.citations[0]["block_index"] == 2
+    assert v.citations[0]["corrected_from"] == 0
+
+
+def test_fabricated_quote_is_rejected():
+    from app.answer.citations import verify
+    kw = _kwargs(["alpha unique one", "beta unique two"])
+    v = verify(_fake_reply("x", [("this was never in any block", 0)]), kw)
+    assert not v.ok
+    assert any("no supplied block" in p for p in v.problems)

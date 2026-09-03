@@ -490,8 +490,11 @@ def catalogue() -> str:
 
 
 def answer(db_path: str, question: str, params: dict | None = None,
-           ledger_path: str | None = None) -> Result:
-    q = pick(question)
+           ledger_path: str | None = None, encoder=None) -> Result:
+    # With an encoder, selection is semantic for recall and lexical for
+    # precision. Without one it falls back to keyword triggers, so the SQL path
+    # still works with no model and no embeddings loaded.
+    q = pick_best(question, encoder)
     if q is None:
         # Refusing is correct. Refusing without saying what *is* available is
         # merely unhelpful, and it makes a closed registry feel broken rather

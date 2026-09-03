@@ -4,6 +4,56 @@ Keyword was recorded first, before any vector search existed, so later changes
 had something to beat. Vector and hybrid were then measured on the identical
 question set.
 
+## First generation, and what it taught about verifying citations
+
+The local 7B produced its first answer, and getting it verified took three
+attempts. Each failure was this codebase's fault, and the third is the useful
+one.
+
+**Attempt 1: no citations at all.** The model wrote `[1] [PROCEDURE] Confirm
+both entries...` instead of `[n] "quoted text"`. The claims were grounded but
+not verifiably grounded, and a parser cannot check a span it was not given.
+Fixed by giving the instruction a worked example of the right form and two of
+the wrong ones.
+
+**Attempt 2: right quotes, wrong blocks.** Every span was verbatim in a supplied
+block and every index was wrong. The model was numbering the procedure *steps*
+1 to 4, not the blocks 0 to 11, because the answer format asks for numbered
+steps and the blocks were also labelled with numbers. My prompt created the
+collision.
+
+Two fixes. Blocks are labelled `[A]`, `[B]`, so they cannot collide with step
+numbers. And verification now looks for the span in **every** supplied block,
+accepting it with a corrected index if found elsewhere. Those are different
+properties and only one is a safety property: **a fabricated quote is a lie, a
+misnumbered one is a typo.**
+
+**Attempt 3: it passed, and the citations were worthless.** The model emitted
+thirteen identical citations of `"One authorisation, two postings"`, the
+document title, which the chunker prepends to every chunk as its heading trail.
+Every span was verbatim, so every one passed, and together they grounded
+nothing.
+
+That is the finding worth keeping. **A check that can be satisfied cheaply will
+be satisfied cheaply**, and the model was not being dishonest, it found the
+least effortful thing that met the stated rule. The rule was wrong: it asked
+whether a span exists, when what matters is whether a citation *narrows down
+where the claim came from*. A span present in every block narrows nothing.
+
+Verification now rejects a citation appearing in more than half the blocks, and
+rejects the same span cited twice. The next attempt produced four distinct,
+substantive citations and passed:
+
+    [D] "Identify which posting came second by created_at, and reverse that one."
+    [E] "Escalate when more than five duplicates appear in the same slot..."
+    [F] "Do not reverse both entries."
+    [G] "Record the RRN, the correlation ID where one exists..."
+
+Worth noting how it was found. No test caught it and no measurement would have:
+the score said VERIFIED. It was visible only by reading the output, which is an
+argument for looking at what a system actually produces rather than only at
+what it scores.
+
 ## The bug the tests found
 
 Writing regression tests turned up the worst defect so far, and the eval had

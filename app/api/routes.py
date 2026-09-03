@@ -49,9 +49,14 @@ _state: dict = {}
 
 def _router() -> Router:
     if "router" not in _state:
-        enc = load_encoder(EMBED, DEVICE)
-        _state["router"] = Router(Hybrid(INDEX, encoder=enc))
+        _state["encoder"] = load_encoder(EMBED, DEVICE)
+        _state["router"] = Router(Hybrid(INDEX, encoder=_state["encoder"]))
     return _state["router"]
+
+
+def _encoder():
+    _router()                       # loads it on first use
+    return _state["encoder"]
 
 
 class Ask(BaseModel):
@@ -119,7 +124,8 @@ def ask(req: Ask):
     if flow == "A":
         r = sql_tool.answer(DATA, req.question,
                             {"rrn": req.rrn} if req.rrn else {},
-                            ledger_path=LEDGER if not LEDGER.startswith("http") else None)
+                            ledger_path=LEDGER if not LEDGER.startswith("http") else None,
+                            encoder=_encoder())
         out["sql"] = {"name": r.query.name if r.query else None,
                       "statement": r.sql, "columns": r.columns,
                       "rows": [list(x) for x in r.rows[:25]],
