@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from app.answer import prompt as prompt_mod  # noqa: E402
 from app.answer.citations import verify  # noqa: E402
 from app.answer.llm import call  # noqa: E402
+from app.answer import sql_tool  # noqa: E402
 from app.answer.router import Router  # noqa: E402
 from app.retrieve.hybrid import Hybrid, load_encoder  # noqa: E402
 from app.retrieve.store import today  # noqa: E402
@@ -44,6 +45,8 @@ def main() -> int:
                    help="ollama keeps everything on this machine")
     p.add_argument("--local-model", default="qwen2.5:7b-instruct")
     p.add_argument("--rrn", default=None, help="a fact to pass through")
+    p.add_argument("--data", default=None,
+                   help="sim database, for the numeric path")
     a = p.parse_args()
 
     encoder = load_encoder(a.model, a.device) if a.mode != "keyword" else None
@@ -61,7 +64,21 @@ def main() -> int:
     # close enough, and while the model could be asked to phrase that refusal
     # nicely, sending it is strictly worse: it costs a call and creates one more
     # opportunity to answer from general knowledge instead of from the corpus.
-    if routed.intent in ("numeric", "lookup") or routed.tier == "none":
+    if routed.intent == "numeric":
+        # Counted, not estimated, and the statement is shown. A wrong query an
+        # operator can read is a bug; a wrong number with no visible derivation
+        # is a liability.
+        print("NOT SENT TO THE MODEL")
+        print(routed.note)
+        print()
+        if not a.data:
+            print("pass --data to run the query")
+            return 0
+        params = {"rrn": a.rrn} if a.rrn else {}
+        print(sql_tool.answer(a.data, a.question, params).render())
+        return 0
+
+    if routed.intent == "lookup" or routed.tier == "none":
         print("NOT SENT TO THE MODEL")
         print(routed.note)
         return 0
