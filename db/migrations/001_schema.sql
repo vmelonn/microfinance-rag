@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS documents (
     source          TEXT NOT NULL,
     product         TEXT,
     jurisdiction    TEXT,
+    anomaly_code    TEXT,   -- operational defect class, see sqlite schema
 
     -- Filtered on before similarity is ever computed. Superseded rows stay
     -- indexed deliberately, so the eval can prove the filter is doing its job.

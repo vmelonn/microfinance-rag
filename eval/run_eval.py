@@ -175,6 +175,34 @@ def run(index: str, k: int, floor: float, verbose: bool,
     print("\n4. REFUSAL          correctly declined  %5.1f%%   (%d/%d)"
           % (r_ok / len(REFUSAL_QUESTIONS) * 100, r_ok, len(REFUSAL_QUESTIONS)))
 
+    # ------------------------------------------------------- precedent
+    #
+    # Only the SEARCH path is measured. Precedent for a known class is a SQL
+    # lookup on anomaly_code and is exact by construction; scoring it would be
+    # scoring a WHERE clause. The number that matters is what a NOVEL defect
+    # gets, because that is the only case where search has to work at all.
+    import sqlite3
+    idx = sqlite3.connect("file:%s?mode=ro" % index, uri=True)
+
+    def code_of(uri):
+        row = idx.execute(
+            "SELECT anomaly_code FROM documents WHERE source_uri = ?",
+            (uri,)).fetchone()
+        return row[0] if row else None
+
+    p_rel = p_tot = 0
+    for a in HELD_OUT:
+        wanted = set(a.analogous_to)
+        for q in a.questions:
+            for hit in store.search(q, k=3, as_of=as_of, mode=mode,
+                                    doc_types=["narrative"]):
+                p_tot += 1
+                if code_of(hit.source_uri) in wanted:
+                    p_rel += 1
+    print("\n5. PRECEDENT        by search, novel defects  %5.1f%%   (%d/%d relevant)"
+          % ((p_rel / p_tot * 100) if p_tot else 0, p_rel, p_tot))
+    print("                    for a KNOWN class precedent is a lookup on")
+    print("                    anomaly_code, exact by construction")
     print("\n" + "-" * 74)
     if mode == "keyword":
         print("BASELINE, keyword only. Record these before adding vectors;")

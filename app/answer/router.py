@@ -119,9 +119,18 @@ class Router:
         r.procedure = looked_up or self.store.search(
             question, k=k, as_of=as_of, mode=self.mode,
             doc_types=PROCEDURE_TYPES)
-        r.precedent = self.store.search(question, k=precedent_k, as_of=as_of,
-                                        mode=self.mode,
-                                        doc_types=PRECEDENT_TYPES)
+        # Precedent for a known class is a lookup too, and for the same reason
+        # as the procedure but a sharper one: narratives are written in customer
+        # language ("the account was debited twice") and procedures in
+        # operational language ("One authorisation, two postings"). They share no
+        # vocabulary for the same defect, so a search phrased either way
+        # retrieves the other badly. The class was already established
+        # deterministically; carrying it across is free and exact.
+        r.precedent = (self._precedent_for(anomaly_code, precedent_k)
+                       if anomaly_code else
+                       self.store.search(question, k=precedent_k, as_of=as_of,
+                                         mode=self.mode,
+                                         doc_types=PRECEDENT_TYPES))
         r.reference = self.store.search(question, k=reference_k, as_of=as_of,
                                         mode=self.mode,
                                         doc_types=REFERENCE_TYPES)
@@ -145,6 +154,21 @@ class Router:
                     source_uri=r['source_uri'],
                     section_path=r['section_path'] or '',
                     text=r['text'], score=1.0, coverage=1.0)
+                for r in rows]
+
+    def _precedent_for(self, code: str, k: int) -> list[Hit]:
+        """Closed cases of the same operational class, most recent first."""
+        rows = self.store.conn.execute(
+            """SELECT k.id, k.document_id, d.doc_type, d.title, d.source_uri,
+                      k.section_path, k.text
+               FROM chunks k JOIN documents d ON d.id = k.document_id
+               WHERE d.anomaly_code = ? AND d.doc_type = 'narrative'
+               ORDER BY d.effective_from DESC LIMIT ?""", (code, k)).fetchall()
+        return [Hit(chunk_id=r["id"], document_id=r["document_id"],
+                    doc_type=r["doc_type"], title=r["title"],
+                    source_uri=r["source_uri"],
+                    section_path=r["section_path"] or "",
+                    text=r["text"], score=1.0, coverage=1.0)
                 for r in rows]
 
     def _tier(self, question: str, r: Routed,

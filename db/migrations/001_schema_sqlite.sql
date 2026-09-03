@@ -13,6 +13,12 @@ CREATE TABLE IF NOT EXISTS documents (
     product         TEXT,
     jurisdiction    TEXT,
 
+    -- The operational defect class, when known. Set on narratives from
+    -- the dispute reason they were written about, so precedent for a
+    -- known class is a lookup rather than a search across two
+    -- vocabularies that share no words.
+    anomaly_code    TEXT,
+
     -- The compliance control. A superseded document stays indexed so we can
     -- prove the filter works, and is excluded by predicate, never by deletion.
     status          TEXT NOT NULL DEFAULT 'current',   -- current | superseded | draft

@@ -406,3 +406,46 @@ CODES = [a.code for a in CATALOGUE]
 
 DOCUMENTED = [a for a in CATALOGUE if not a.held_out]
 HELD_OUT = [a for a in CATALOGUE if a.held_out]
+
+
+# ---------------------------------------------------------------------------
+# Customer language -> operational language.
+#
+# The two corpora describe the same defects in vocabulary that does not
+# overlap at all. A narrative says "the account was debited twice"; the
+# procedure for that defect is titled "One authorisation, two postings". There
+# is no shared term for a keyword index to match and no shared framing for an
+# embedding to place nearby, so retrieving precedent by searching with an
+# operational phrasing was never going to work. That is a property of the
+# domain, not a tuning problem: complaints are written by customers and
+# procedures are written by engineers.
+#
+# So precedent, like procedure, is a LOOKUP when the class is known. The recon
+# engine identified the defect deterministically; asking a search engine to
+# rediscover it from prose throws that away. Search remains the path for a
+# novel defect, where by definition no code exists.
+#
+# Several complaint reasons map to one anomaly, which is the honest direction:
+# a customer reports a symptom, and one operational cause produces several
+# symptoms. Reasons with no clean operational counterpart map to None and are
+# reachable only by search.
+# ---------------------------------------------------------------------------
+
+REASON_TO_ANOMALY: dict[str, str | None] = {
+    "double_debit":       "DUPLICATE_POSTING",
+    "duplicate_bill":     "DUPLICATE_POSTING",
+    "wrong_amount":       "AMOUNT_MISMATCH",
+    "failed_but_debited": "ORPHAN_SWITCH",
+    "no_credit":          "ORPHAN_SWITCH",
+    "reversal_missing":   "STALE_REVERSAL",
+    "fee_disputed":       "FEE_OVERCHARGE",
+    "stale_balance":      "NEGATIVE_BALANCE",
+    "atm_short":          "AMOUNT_MISMATCH",
+    "unauthorised":       "APPROVED_BUT_DECLINED",
+    # No clean operational counterpart. An agent keeping the cash is a conduct
+    # problem, not a ledger defect, and a merchant withholding goods is a
+    # commercial dispute. Both reach the corpus only by search, which is
+    # correct rather than a gap.
+    "agent_no_cash":      None,
+    "merchant_no_goods":  None,
+}

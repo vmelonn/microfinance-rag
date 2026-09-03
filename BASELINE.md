@@ -4,6 +4,50 @@ Keyword was recorded first, before any vector search existed, so later changes
 had something to beat. Vector and hybrid were then measured on the identical
 question set.
 
+## Precedent, and why it was bad
+
+Precedent retrieval was visibly poor and unmeasured: a duplicate-posting
+question returned fee disputes, 1 of 3 relevant. The cause is not tuning.
+
+**The two corpora describe the same defect in vocabulary that does not overlap.**
+
+| A narrative says | The procedure for it is titled |
+|---|---|
+| the account was debited twice | One authorisation, two postings |
+| the transaction failed but the account was still debited | Approved at the switch, absent from the ledger |
+| the amount debited did not match the amount entered | Same reference, different amounts |
+
+No shared term for a keyword index to match, no shared framing for an embedding
+to place nearby. That is a property of the domain rather than a defect in the
+retriever: complaints are written by customers and procedures are written by
+engineers, and they describe the symptom and the cause respectively.
+
+So precedent follows the procedure tier: **a known class is a lookup, not a
+search.** `REASON_TO_ANOMALY` maps the twelve complaint reasons onto the
+operational catalogue, ingest carries the class onto each narrative, and the
+router selects on `anomaly_code`. On the duplicate-posting question that moves
+precedent from 1 of 3 relevant to 3 of 3.
+
+Two of the twelve reasons map to nothing on purpose. An agent keeping the cash
+is a conduct problem and a merchant withholding goods is a commercial dispute;
+neither is a ledger defect, so both remain reachable only by search, which is
+correct rather than a gap.
+
+### The number that matters is the search path
+
+Precedent by lookup is a `WHERE anomaly_code = ?`, so scoring it would be
+scoring a SQL clause. The honest measurement is what a **novel** defect gets,
+because search is the only option there:
+
+**37.5% relevant (9 of 24).**
+
+That is low, it is now visible, and it is the correct thing to have measured.
+It also bounds the derived tier: when the system meets a defect nobody
+documented, roughly a third of the past cases it offers as evidence are the
+right kind. Improving it means either bridging the two vocabularies at index
+time or accepting that precedent is weak evidence for novel defects and saying
+so in the answer.
+
 ## Result with document-kind scoping
 
 The measurements below replaced a flawed harness. The earlier runs excluded

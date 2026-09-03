@@ -52,6 +52,7 @@ class Writer:
 
     def put(self, *, source_uri: str, title: str, doc_type: str, source: str,
             chunks: list, status: str = "current", product=None,
+            anomaly_code=None,
             effective_from=None, effective_to=None, superseded_by=None) -> None:
         if not chunks:
             return
@@ -72,11 +73,11 @@ class Writer:
 
         cur.execute(
             """INSERT INTO documents (id, doc_type, title, source_uri, source, product,
-                   jurisdiction, status, effective_from, effective_to, superseded_by,
-                   content_hash, ingested_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (did, doc_type, title, source_uri, source, product, None, status,
-             effective_from, effective_to, superseded_by, digest,
+                   jurisdiction, anomaly_code, status, effective_from, effective_to,
+                   superseded_by, content_hash, ingested_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (did, doc_type, title, source_uri, source, product, None, anomaly_code,
+             status, effective_from, effective_to, superseded_by, digest,
              datetime.now(timezone.utc).isoformat()))
 
         cur.executemany(
@@ -160,14 +161,28 @@ def ingest_file(w: Writer, path: Path, repo_root: Path | None) -> None:
 
 
 def ingest_sim(w: Writer, sim_db: str, limit: int | None) -> None:
-    """Resolution narratives. Tagged source='sim' so the eval can exclude them."""
+    """
+    Resolution narratives, tagged with the operational defect class.
+
+    The join is the point. A narrative is written in customer language and the
+    procedure for the same defect is written in operational language, and the
+    two share no vocabulary. Carrying the class across at ingest turns precedent
+    for a known defect into a lookup instead of a search that was never going to
+    bridge that gap.
+    """
+    from sim.catalogue import REASON_TO_ANOMALY
+
     src = sqlite3.connect("file:%s?mode=ro" % sim_db, uri=True)
-    q = "SELECT narrative_id, title, body, written_at FROM sim_narratives ORDER BY written_at"
+    q = """SELECT n.narrative_id, n.title, n.body, n.written_at, d.reason_code
+           FROM sim_narratives n
+           LEFT JOIN sim_disputes d ON d.dispute_id = n.dispute_id
+           ORDER BY n.written_at"""
     if limit:
         q += " LIMIT %d" % limit
-    for nid, title, body, written_at in src.execute(q):
+    for nid, title, body, written_at, reason in src.execute(q):
         w.put(source_uri="sim://narrative/%s" % nid, title=title,
               doc_type="narrative", source="sim",
+              anomaly_code=REASON_TO_ANOMALY.get(reason),
               chunks=chunk_record(title, body), effective_from=written_at[:10])
     src.close()
 
